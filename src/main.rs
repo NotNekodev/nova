@@ -1,8 +1,10 @@
 mod render;
+mod logic;
 mod shared;
 
 use render::*;
 use shared::*;
+use logic::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -13,8 +15,7 @@ fn main() {
 
     let test_shared = Arc::clone(&shared);
     thread::spawn(move || {
-         let mut framecount = test_shared.lock().unwrap().frame_count;
-         framecount += 1;
+        logic_main(&test_shared);
     });
 
     render_main(&shared)

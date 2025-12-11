@@ -62,5 +62,4 @@ pub fn vk_init() {
         properties.api_version.patch
     );
 
-    let event_loop = EventLoop::new();
 }

@@ -1,9 +1,11 @@
 pub mod vulkantest;
+pub mod window;
 
 use crate::shared::*;
 use std::sync::{Arc, Mutex};
 
 pub fn render_main(data: &Arc<Mutex<shared_data>>){
     vulkantest::vk_init();
-    println!("frame count: {}",data.lock().unwrap().frame_count)
+
+    window::create_window_app(data);
 }
