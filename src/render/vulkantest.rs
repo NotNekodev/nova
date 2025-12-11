@@ -8,7 +8,7 @@ use vulkano::pipeline::graphics::rasterization::RasterizationState;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::pipeline::graphics::vertex_input::{Vertex, VertexDefinition};
 use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
-use vulkano::pipeline::{PipelineLayout, PipelineShaderStageCreateInfo};
+use vulkano::pipeline::{DynamicState, PipelineLayout, PipelineShaderStageCreateInfo};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::{VulkanLibrary, Validated, VulkanError};
 use vulkano::device::physical::PhysicalDeviceType;
@@ -21,14 +21,13 @@ use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Sub
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
 use vulkano::sync::{self, GpuFuture};
-use winit::event_loop;
 
 use std::sync::Arc;
 use winit::{event_loop::EventLoop, window::Window};
 
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
-struct VkVertex {
+pub struct VkVertex {
     #[format(R32G32_SFLOAT)]
     position: [f32; 2],
     #[format(R32G32B32_SFLOAT)]
@@ -230,6 +229,7 @@ pub fn vk_init(window: Arc<Window>, event_loop: &EventLoop<()>) {
         let vertex_input_state = VkVertex::per_vertex()
             .definition(&vs.info().input_interface)
             .unwrap();
+        let viewport_state = ViewportState::default();
         let stages = [
             PipelineShaderStageCreateInfo::new(vs),
             PipelineShaderStageCreateInfo::new(fs),
@@ -249,14 +249,14 @@ pub fn vk_init(window: Arc<Window>, event_loop: &EventLoop<()>) {
                 stages: stages.into_iter().collect(),
                 vertex_input_state: Some(vertex_input_state),
                 input_assembly_state: Some(InputAssemblyState::default()),
-                viewport_state: Some(ViewportState::default()),
+                viewport_state: Some(viewport_state),
                 rasterization_state: Some(RasterizationState::default()),
                 multisample_state: Some(MultisampleState::default()),
                 color_blend_state: Some(ColorBlendState::with_attachment_states(
                     subpass.num_color_attachments(),
                     ColorBlendAttachmentState::default(),
                 )),
-                dynamic_state: [].into_iter().collect(),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
                 subpass: Some(subpass.into()),
                 ..GraphicsPipelineCreateInfo::layout(layout)
             }

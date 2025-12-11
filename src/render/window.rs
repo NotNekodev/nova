@@ -3,12 +3,10 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use super::vulkantest::{vk_init, vk_render, vk_handle_resize};
 use crate::shared::*;
-
-static WINDOW: OnceLock<Arc<Window>> = OnceLock::new();
 
 pub struct App {
     pub shared: Option<Arc<Mutex<SharedData>>>,
@@ -24,16 +22,10 @@ pub fn create_window_app(shared: Arc<Mutex<SharedData>>) {
             .unwrap(),
     );
 
-    WINDOW.set(window.clone()).expect("WINDOW already initialized");
-
     vk_init(window.clone(), &event_loop);
 
-    let mut app = App {
-        shared: Some(shared.clone()),
-    };
-
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::Wait;
 
         match event {
             Event::WindowEvent { event, .. } => match event {
@@ -47,23 +39,22 @@ pub fn create_window_app(shared: Arc<Mutex<SharedData>>) {
                 _ => (),
             },
 
-            Event::MainEventsCleared => {
-                if let Some(shared_ref) = &app.shared {
-                    let mut shared = shared_ref.lock().unwrap();
-                    println!("framecount: {}", shared.frame_count);
+            // Drive the redraw loop from RedrawRequested instead of MainEventsCleared.
+            Event::RedrawRequested(_) => {
+                if let Ok(mut shared) = shared.lock() {
                     shared.frame_count += 1;
                 }
 
-                vk_render(get_window());
-                get_window().request_redraw();
+                vk_render(window.clone());
+                window.request_redraw();
+            }
+
+            // Kick off the first frame once events are cleared.
+            Event::MainEventsCleared => {
+                window.request_redraw();
             }
 
             _ => (),
         }
     });
-}
-
-// Safe getter used by rendering code
-pub fn get_window() -> Arc<Window> {
-    WINDOW.get().expect("Window not initialized").clone()
 }

@@ -1,13 +1,14 @@
 use std::string::String;
 
+#[allow(dead_code)]
 // Make Asset public so it can appear in a public function’s signature.
 pub enum Asset {
     ShaderCode(String), //sorry you gotta compile GLSL for now
     None
 }
 
-
-static vshader: &str = r"
+#[allow(dead_code)]
+static VSHADER: &str = r"
                     #version 460
 
                     layout(location = 0) in vec2 position;
@@ -21,7 +22,8 @@ static vshader: &str = r"
                     }
                 ";
 
-static fshader: &str = r"
+#[allow(dead_code)]
+static FSHADER: &str = r"
                     #version 460
 
                     layout(location = 0) in vec3 fragColor;
@@ -34,11 +36,12 @@ static fshader: &str = r"
 
 
 
+#[allow(dead_code)]
 pub fn get_asset(name: &str) -> Asset {
     //TODO: make a real backend for this
     match name {
-        "vshader" => Asset::ShaderCode(vshader.to_string()),
-        "fshader" => Asset::ShaderCode(fshader.to_string()),
+        "vshader" => Asset::ShaderCode(VSHADER.to_string()),
+        "fshader" => Asset::ShaderCode(FSHADER.to_string()),
         _ => Asset::None
     }
 }
