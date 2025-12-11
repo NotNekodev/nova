@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() {
-    let shared = Arc::new(Mutex::new(shared_data{
+    let shared = Arc::new(Mutex::new(SharedData {
         frame_count: 0
     }));
 

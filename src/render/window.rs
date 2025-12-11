@@ -1,70 +1,69 @@
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId};
-use std::sync::OnceLock;
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowBuilder},
+};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use super::vulkantest::{vk_init, vk_render, vk_handle_resize};
 use crate::shared::*;
-use std::sync::{Arc, Mutex};
 
-static WINDOW: OnceLock<&'static Window> = OnceLock::new();
+static WINDOW: OnceLock<Arc<Window>> = OnceLock::new();
 
-#[derive(Default)]
-pub struct App<'a> {
-    window: Option<Window>,
-    pub shared: Option<&'a Arc<Mutex<shared_data>>>
+pub struct App {
+    pub shared: Option<Arc<Mutex<SharedData>>>,
 }
 
-impl ApplicationHandler for App<'_> {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = event_loop.create_window(Window::default_attributes()).unwrap();
+pub fn create_window_app(shared: Arc<Mutex<SharedData>>) {
+    let event_loop = EventLoop::new();
+    let window = Arc::new(
+        WindowBuilder::new()
+            .with_title("Nova GE Window")
+            .with_decorations(true)
+            .build(&event_loop)
+            .unwrap(),
+    );
 
-        let static_win: &'static Window = Box::leak(Box::new(window));
-        WINDOW.set(static_win).expect("Failed to set WINDOW");
-    }
+    WINDOW.set(window.clone()).expect("WINDOW already initialized");
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    vk_init(window.clone(), &event_loop);
+
+    let mut app = App {
+        shared: Some(shared.clone()),
+    };
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+
         match event {
-            WindowEvent::CloseRequested => {
-                println!("The close button was pressed; stopping");
-                event_loop.exit();
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => {
+                    println!("The close button was pressed; stopping");
+                    *control_flow = ControlFlow::Exit;
+                }
+                WindowEvent::Resized(_) => {
+                    vk_handle_resize();
+                }
+                _ => (),
             },
-            WindowEvent::RedrawRequested => {
-                // Redraw the application.
-                //
-                // It's preferable for applications that do not render continuously to render in
-                // this event rather than in AboutToWait, since rendering in here allows
-                // the program to gracefully handle redraws requested by the OS.
 
-                // Draw.
+            Event::MainEventsCleared => {
+                if let Some(shared_ref) = &app.shared {
+                    let mut shared = shared_ref.lock().unwrap();
+                    println!("framecount: {}", shared.frame_count);
+                    shared.frame_count += 1;
+                }
 
-                // Queue a RedrawRequested event.
-                //
-                // You only need to call this if you've determined that you need to redraw in
-                // applications which do not always need to. Applications that redraw continuously
-                // can render here instead.
-
-                let mut shared_handle = &mut (self.shared.as_mut().unwrap().lock().unwrap());
-                println!("framecount: {}", shared_handle.frame_count);
-                shared_handle.frame_count += 1;
+                vk_render(get_window());
                 get_window().request_redraw();
             }
+
             _ => (),
         }
-    }
+    });
 }
 
-pub fn create_window_app<'a>(shared: &'a Arc<Mutex<shared_data>>) {
-    let event_loop = EventLoop::new().unwrap();
-
-    event_loop.set_control_flow(ControlFlow::Poll); // according to the docs this is the best for games
-
-    let mut app = App::default();
-
-    app.shared = Option::Some(shared);
-
-    event_loop.run_app(&mut app).unwrap();
-}
-
-pub fn get_window() -> &'static Window {
-    WINDOW.get().expect("Window not initialized")
+// Safe getter used by rendering code
+pub fn get_window() -> Arc<Window> {
+    WINDOW.get().expect("Window not initialized").clone()
 }
