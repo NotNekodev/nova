@@ -1,18 +1,18 @@
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{WindowBuilder},
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 
 use super::vulkantest::{vk_init, vk_render, vk_handle_resize};
 use crate::shared::*;
 
 pub struct App {
-    pub shared: Option<Arc<Mutex<SharedData>>>,
+    pub shared: Option<SharedData>,
 }
 
-pub fn create_window_app(shared: Arc<Mutex<SharedData>>) {
+pub fn create_window_app(shared: SharedData) {
     let event_loop = EventLoop::new();
     let window = Arc::new(
         WindowBuilder::new()
@@ -41,8 +41,8 @@ pub fn create_window_app(shared: Arc<Mutex<SharedData>>) {
 
             // Drive the redraw loop from RedrawRequested instead of MainEventsCleared.
             Event::RedrawRequested(_) => {
-                if let Ok(mut shared) = shared.lock() {
-                    shared.frame_count += 1;
+                if let Ok(mut frame_count) = shared.frame_count.lock() {
+                    *frame_count += 1;
                 }
 
                 vk_render(window.clone());

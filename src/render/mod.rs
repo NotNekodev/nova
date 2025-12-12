@@ -1,10 +1,10 @@
 pub mod vulkantest;
 pub mod window;
 
+use crate::*;
 use crate::shared::*;
-use std::sync::{Arc, Mutex};
 
-pub fn render_main(data: &Arc<Mutex<SharedData>>){
-
-    window::create_window_app(data.clone());
+pub fn render_main(data: SharedData){
+    info!(data.logger.lock().unwrap(),"Nova Engine finished initializing");
+    window::create_window_app(data);
 }

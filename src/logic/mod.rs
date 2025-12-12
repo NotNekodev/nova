@@ -1,8 +1,8 @@
 use crate::shared::*;
 use std::sync::{Arc, Mutex};
 
-pub fn logic_main(data: &Arc<Mutex<SharedData>>){
+pub fn logic_main(data: SharedData){
     // Keep this for now but mark as intentionally unused.
-    let mut _framecount = data.lock().unwrap().frame_count;
-    _framecount += 1;
+    let mut _framecount = data.frame_count.lock().unwrap();
+    *_framecount += 1;
 }
