@@ -8,10 +8,6 @@ use std::sync::{Arc};
 use super::vulkantest::{vk_init, vk_render, vk_handle_resize};
 use crate::shared::*;
 
-pub struct App {
-    pub shared: Option<SharedData>,
-}
-
 pub fn create_window_app(shared: SharedData) {
     let event_loop = EventLoop::new();
     let window = Arc::new(
