@@ -23,7 +23,7 @@ fn main() {
     let logic_handle = thread::Builder::new().name("logic".to_string()).spawn(move || {
         logic_main(logic_shared);
     }).unwrap_or_else(|_| {
-        fatal!(*shared.logger.lock().unwrap(),"Failed to spawn logic thread")
+        fatal!(shared,"Failed to spawn logic thread")
     });
 
     let render_shared = shared.clone();
@@ -32,7 +32,7 @@ fn main() {
 
     //join all threads
     logic_handle.join().unwrap_or_else(|_| {
-        fatal!(*shared.logger.lock().unwrap(),"Render thread panicked, can't continue operation!")
+        fatal!(shared,"Render thread panicked, can't continue operation!")
     });
 
 }
