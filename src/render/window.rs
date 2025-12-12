@@ -6,7 +6,7 @@ use winit::{
 use std::sync::{Arc};
 
 use super::vulkantest::{vk_init, vk_render, vk_handle_resize};
-use crate::shared::*;
+use crate::{popup_info, shared::*};
 
 pub fn create_window_app(shared: SharedData) {
     let event_loop = EventLoop::new();
@@ -26,7 +26,7 @@ pub fn create_window_app(shared: SharedData) {
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
-                    println!("The close button was pressed; stopping");
+                    popup_info!(shared,"being annoying on purpuse","I see you wanted to close this app so we'll give you this annoying ass popup");
                     *control_flow = ControlFlow::Exit;
                 }
                 WindowEvent::Resized(_) => {

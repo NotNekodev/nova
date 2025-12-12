@@ -42,7 +42,7 @@ impl Logger {
         );
     }
 
-    pub fn popup(&self, level: Level, title: String, message: Arguments,file: Option<&str>,line: Option<u32>){
+    pub fn popup(&self, level: Level, title: &str, message: Arguments,file: Option<&str>,line: Option<u32>){
         let icon = match level {
             Level::Error => Icon::Error,
             Level::Warn => Icon::Warning,
@@ -51,7 +51,7 @@ impl Logger {
             Level::Trace => Icon::Info,
         };
 
-        let _ = alerta().title(&title).message(format!("{message}")).icon(icon).show();
+        let _ = alerta().title(&title.to_string()).message(format!("{message}")).icon(icon).show();
 
         self.log(level, message,file,line);
     }
