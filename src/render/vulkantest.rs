@@ -614,7 +614,7 @@ unsafe fn create_sync_objects(device: &Device) -> (Vec<vk::Semaphore>, Vec<vk::S
     }
 }
 
-pub fn vk_init(shared: &SharedData, window: &Arc<Window>, _event_loop: &EventLoop<()>) {
+pub fn vk_init(shared: &SharedData, window: &Arc<Window>) {
     unsafe {
         let entry = Entry::load().expect("Failed to load Vulkan");
         let instance = create_instance(&entry, window);
@@ -634,7 +634,7 @@ pub fn vk_init(shared: &SharedData, window: &Arc<Window>, _event_loop: &EventLoo
                 let patch = vk::api_version_patch(version);
                 info!(shared, "Vulkan version: {}.{}.{}", major, minor, patch);
             }
-            Ok(None) => {
+            Ok(Option::None) => {
                 info!(shared, "Vulkan version: 1.0.0");
             }
             Err(e) => {
@@ -733,7 +733,7 @@ pub fn vk_reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
         let mut state_opt = vk.borrow_mut();
         let state = match state_opt.as_mut() {
             Some(s) => s,
-            None => return,
+            Option::None => return,
         };
 
         unsafe {
@@ -806,7 +806,7 @@ pub fn vk_render(window: &Arc<Window>) {
         let mut state_opt = vk.borrow_mut();
         let state = match state_opt.as_mut() {
             Some(s) => s,
-            None => return,
+            Option::None => return,
         };
 
         let window_size = window.inner_size();

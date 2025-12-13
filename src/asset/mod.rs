@@ -81,21 +81,21 @@ pub fn main(shared: SharedData, rx: Receiver<AssetRequest>){
         let ass: Asset = match req.name.as_str() {
             "test_vs" =>  match compile_glsl(VSHADER,ShaderKind::Vertex,&c,&o) {
                                 Some(d) => Asset::Shader(d),
-                                None => Asset::None
+                                Option::None => Asset::None
                             },
             "test_fs" => match compile_glsl(FSHADER,ShaderKind::Fragment,&c,&o) {
                                 Some(d) => Asset::Shader(d),
-                                None => {
+                                Option::None => {
                                     Asset::None
                                 }
                             },
             "test_vs2" =>  match compile_glsl(VSHADER_2,ShaderKind::Vertex,&c,&o) {
                                 Some(d) => Asset::Shader(d),
-                                None => Asset::None
+                                Option::None => Asset::None
                             },
             "test_fs2" => match compile_glsl(FSHADER_2,ShaderKind::Fragment,&c,&o) {
                                 Some(d) => Asset::Shader(d),
-                                None => {
+                                Option::None => {
                                     Asset::None
                                 }
                             },
