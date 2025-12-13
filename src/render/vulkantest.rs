@@ -627,6 +627,21 @@ pub fn vk_init(shared: &SharedData, window: &Arc<Window>, _event_loop: &EventLoo
             None
         ).unwrap();
 
+        match entry.try_enumerate_instance_version() {
+            Ok(Some(version)) => {
+                let major = vk::api_version_major(version);
+                let minor = vk::api_version_minor(version);
+                let patch = vk::api_version_patch(version);
+                info!(shared, "Vulkan version: {}.{}.{}", major, minor, patch);
+            }
+            Ok(None) => {
+                info!(shared, "Vulkan version: 1.0.0");
+            }
+            Err(e) => {
+                warn!(shared, "Failed to query Vulkan version: {:?}", e);
+            }
+        }
+
         let (physical_device, queue_family_index) = pick_physical_device(&instance, &surface_loader, surface);
         
         let properties = instance.get_physical_device_properties(physical_device);
