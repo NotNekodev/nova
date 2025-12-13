@@ -21,8 +21,8 @@ static CONSTANT_DATA: OnceLock<GlobalData> = OnceLock::new();
 //Shared data that is accessed by threads
 #[derive(Clone)]
 pub struct RenderStats {
-    pub framerate: u32, // in frames per second
-    pub frametime: u32, // in microseconds
+    pub framerate: f32, // in frames per second
+    pub frametime: u128, // in microseconds
 }
 
 #[derive(Clone)]

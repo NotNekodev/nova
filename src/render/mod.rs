@@ -8,13 +8,12 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
-use std::sync::{Arc};
+use std::{sync::Arc, time::Instant};
 
 use vulkantest::{vk_init, vk_render, vk_handle_resize};
 
 
 fn main_loop(shared: &SharedData, win: &Arc<Window>){
-    //info!(shared,"FPS: {}",shared.render_stats.lock().unwrap().framerate);
     vk_render(&win);
 }
 
@@ -37,6 +36,10 @@ pub fn main(shared: SharedData){
     vk_init(&shared,&window, &event_loop);
 
     info!(shared, "Render thread initialized");
+
+    let mut last_frame_time = Instant::now();
+    let mut frame_count = 0;
+    let mut fps_timer = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -78,6 +81,23 @@ pub fn main(shared: SharedData){
 
             // Drive the redraw loop from RedrawRequested instead of MainEventsCleared.
             Event::RedrawRequested(_) => {
+                // measure stuff
+                let now = Instant::now();
+                let delta = now.duration_since(last_frame_time);
+                last_frame_time = now;
+                frame_count += 1;
+
+                if let Ok(mut stats) = shared.render_stats.lock() {
+                    stats.frametime = delta.as_micros();
+                    // only update every second
+                    if fps_timer.elapsed() >= Duration::from_secs(1) {
+                        stats.framerate = frame_count as f32 / fps_timer.elapsed().as_secs_f32();
+                        println!("FPS: {:.2}, Frametime: {} microseconds", stats.framerate, stats.frametime);
+                        frame_count = 0;
+                        fps_timer = Instant::now();
+                    }
+                }
+
                 main_loop(&shared, &window);
                 window.request_redraw();
             }

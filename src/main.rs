@@ -18,7 +18,7 @@ fn mt_main(logger: Logger) {
 
         render_stats: Arc::new(Mutex::new(
             RenderStats {
-                framerate: 0,
+                framerate: 0.0,
                 frametime: 0 
             }
         )),
