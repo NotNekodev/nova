@@ -12,27 +12,20 @@ use std::thread;
 use crate::shared::logger::Logger;
 
 fn main() {
-    //This structure has the references to all the shared memory in the engine
+    // This structure has the references to all the shared memory in the engine
+    // This original copy belongs to the Render thread
     let shared = SharedData {
         frame_count: Arc::new(Mutex::new(0)),
         logger: Arc::new(Mutex::new(Logger::new(true, "logs.txt")))
     };
 
-    //spawn all threads
+    //Spawn the logic thread
     let logic_shared = shared.clone();
-    let logic_handle = thread::Builder::new().name("logic".to_string()).spawn(move || {
+    thread::Builder::new().name("logic".to_string()).spawn(move || {
         logic_main(logic_shared);
     }).unwrap_or_else(|_| {
         fatal!(shared,"Failed to spawn logic thread")
     });
 
-    let render_shared = shared.clone();
-    render_main(render_shared);
-
-
-    //join all threads
-    logic_handle.join().unwrap_or_else(|_| {
-        fatal!(shared,"Render thread panicked, can't continue operation!")
-    });
-
+    render_main(shared);
 }
