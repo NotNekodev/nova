@@ -1,7 +1,9 @@
+use crate::*;
 use crate::shared::*;
 
-pub fn logic_main(data: SharedData){
-    // Keep this for now but mark as intentionally unused.
-    let mut _framecount = data.frame_count.lock().unwrap();
-    *_framecount += 1;
+pub fn main(shared: SharedData){
+    if let Ok(mut _lock) = shared.logic_init.lock() {
+        info!(shared,"Logic thread initialized");
+    } 
+
 }

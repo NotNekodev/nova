@@ -88,7 +88,7 @@ thread_local! {
     static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
 }
 
-pub fn vk_init(window: Arc<Window>, event_loop: &EventLoop<()>) {
+pub fn vk_init(window: &Arc<Window>, event_loop: &EventLoop<()>) {
     let library = VulkanLibrary::new().expect("no vulkan library found!");
     
     let required_extensions = Surface::required_extensions(&event_loop);
@@ -301,7 +301,7 @@ pub fn vk_init(window: Arc<Window>, event_loop: &EventLoop<()>) {
 }
 
 // vk_render now takes Arc<Window> instead of &Window.
-pub fn vk_render(window: Arc<Window>) {
+pub fn vk_render(window: &Arc<Window>) {
     VK_STATE.with(|vk| {
         let mut state_opt = vk.borrow_mut();
         let state = match state_opt.as_mut() {
