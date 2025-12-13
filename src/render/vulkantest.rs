@@ -25,6 +25,10 @@ use vulkano::sync::{self, GpuFuture};
 use std::sync::Arc;
 use winit::{event_loop::EventLoop, window::Window};
 
+use crate::*;
+use crate::shared::*;
+use crate::shared::asset::*;
+
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
 pub struct VkVertex {
@@ -32,41 +36,6 @@ pub struct VkVertex {
     position: [f32; 2],
     #[format(R32G32B32_SFLOAT)]
     color: [f32; 3],
-}
-
-mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        src: r"
-            #version 460
-
-            layout(location = 0) in vec2 position;
-            layout(location = 1) in vec3 color;
-
-            layout(location = 0) out vec3 fragColor;
-
-            void main() {
-                gl_Position = vec4(position, 0.0, 1.0);
-                fragColor = color;
-            }
-        ",
-    }
-}
-
-mod fs {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        src: r"
-            #version 460
-
-            layout(location = 0) in vec3 fragColor;
-            layout(location = 0) out vec4 outColor;
-
-            void main() {
-                outColor = vec4(fragColor, 1.0);
-            }
-        ",
-    }
 }
 
 pub struct VkState {
@@ -82,17 +51,20 @@ pub struct VkState {
     pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     pub recreate_swapchain: bool,
     pub previous_frame_end: Option<Box<dyn GpuFuture>>,
+
+    pub vs_code: Arc<vulkano::shader::ShaderModule>,
+    pub fs_code: Arc<vulkano::shader::ShaderModule>,
 }
 
 thread_local! {
     static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
 }
 
-pub fn vk_init(window: &Arc<Window>, event_loop: &EventLoop<()>) {
+pub fn vk_init(shared: &SharedData, window: &Arc<Window>, event_loop: &EventLoop<()>) {
     let library = VulkanLibrary::new().expect("no vulkan library found!");
-    
+
     let required_extensions = Surface::required_extensions(&event_loop);
-    
+
     let instance = Instance::new(
         library,
         InstanceCreateInfo {
@@ -222,17 +194,36 @@ pub fn vk_init(window: &Arc<Window>, event_loop: &EventLoop<()>) {
         },
     ).unwrap();
 
+    let mut vs_data = Vec::<u32>::new();
+    let mut fs_data = Vec::<u32>::new();
+
+    let vs_ass = get_asset(shared, "test_vs");
+    let fs_ass = get_asset(shared, "test_fs");
+
+    if let Asset::Shader(mut data) = vs_ass {
+        vs_data.append(&mut data);
+    } else {
+        err!(shared,"Failed to get the test vertex shader");
+    }
+
+    if let Asset::Shader(mut data) = fs_ass {
+        fs_data.append(&mut data);
+    } else {
+        err!(shared,"Failed to get the test fragment shader");
+    }
+
+    let vs = vk_load_shader(&device, vs_data.as_slice());
+    let fs = vk_load_shader(&device, fs_data.as_slice());
+ 
     let pipeline = {
-        let vs = vs::load(device.clone()).expect("failed to create shader module").entry_point("main").unwrap();
-        let fs = fs::load(device.clone()).expect("failed to create shader module").entry_point("main").unwrap();
         // Use VertexDefinition to convert to a VertexInputState.
         let vertex_input_state = VkVertex::per_vertex()
-            .definition(&vs.info().input_interface)
+            .definition(&vs.entry_point("main").unwrap().info().input_interface)
             .unwrap();
         let viewport_state = ViewportState::default();
         let stages = [
-            PipelineShaderStageCreateInfo::new(vs),
-            PipelineShaderStageCreateInfo::new(fs),
+            PipelineShaderStageCreateInfo::new(vs.entry_point("main").unwrap()),
+            PipelineShaderStageCreateInfo::new(fs.entry_point("main").unwrap()),
         ];
         let layout = PipelineLayout::new(
             device.clone(),
@@ -293,10 +284,77 @@ pub fn vk_init(window: &Arc<Window>, event_loop: &EventLoop<()>) {
         command_buffer_allocator,
         recreate_swapchain: false,
         previous_frame_end,
+        vs_code: vs,
+        fs_code: fs,
     };
 
     VK_STATE.with(|vk| {
         *vk.borrow_mut() = Some(state);
+    });
+}
+
+pub fn vk_load_shader(device: &Arc<Device>,spirv_data: &[u32]) -> Arc<vulkano::shader::ShaderModule> {
+    unsafe {
+        vulkano::shader::ShaderModule::new(device.clone(), 
+         vulkano::shader::ShaderModuleCreateInfo::new(
+            spirv_data
+        )).expect("failed to create shader module")
+    }
+}
+
+pub fn vk_reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
+    VK_STATE.with(|vk| {
+        let mut state_opt = vk.borrow_mut();
+        let state = match state_opt.as_mut() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let new_vs = vk_load_shader(&state.device,vert_spirv);
+        let new_fs = vk_load_shader(&state.device,frag_spirv);
+
+        state.vs_code = new_vs;
+        state.fs_code = new_fs;
+
+        let stages = [
+            PipelineShaderStageCreateInfo::new(state.vs_code.entry_point("main").unwrap()),
+            PipelineShaderStageCreateInfo::new(state.fs_code.entry_point("main").unwrap()),
+        ];
+
+        let layout = PipelineLayout::new(
+            state.device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(state.device.clone())
+                .unwrap(),
+        ).unwrap();
+
+        let subpass = Subpass::from(state.render_pass.clone(), 0).unwrap();
+
+        let vertex_input_state = VkVertex::per_vertex()
+            .definition(&state.vs_code.entry_point("main").unwrap().info().input_interface)
+            .unwrap();
+        let viewport_state = ViewportState::default();
+
+        let pipeline = GraphicsPipeline::new(
+            state.device.clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(viewport_state),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            }
+        ).unwrap();
+        state.pipeline = pipeline;
     });
 }
 

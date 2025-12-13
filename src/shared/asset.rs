@@ -1,47 +1,30 @@
-use std::string::String;
+use std::sync::mpsc;
+use crate::*;
+
+use super::SharedData;
 
 #[allow(dead_code)]
 // Make Asset public so it can appear in a public function’s signature.
 pub enum Asset {
-    ShaderCode(String), //sorry you gotta compile GLSL for now
+    Shader(Vec<u32>),
     None
 }
 
-#[allow(dead_code)]
-static VSHADER: &str = r"
-                    #version 460
-
-                    layout(location = 0) in vec2 position;
-                    layout(location = 1) in vec3 color;
-
-                    layout(location = 0) out vec3 fragColor;
-
-                    void main() {
-                        gl_Position = vec4(position, 0.0, 1.0);
-                        fragColor = color;
-                    }
-                ";
+pub struct AssetRequest {
+    pub name: String,
+    pub sender: mpsc::Sender<Asset>
+}
 
 #[allow(dead_code)]
-static FSHADER: &str = r"
-                    #version 460
+pub fn get_asset(shared: &SharedData,name: &str) -> Asset {
+    //reply channel
+    let (reply_tx, reply_rx) = mpsc::channel::<Asset>();
 
-                    layout(location = 0) in vec3 fragColor;
-                    layout(location = 0) out vec4 outColor;
+    //send command
+    shared.asset_tx.send(AssetRequest { name: name.to_string(), sender: reply_tx });
 
-                    void main() {
-                        outColor = vec4(fragColor, 1.0);
-                    }
-                ";
-
-
-
-#[allow(dead_code)]
-pub fn get_asset(name: &str) -> Asset {
-    //TODO: make a real backend for this
-    match name {
-        "vshader" => Asset::ShaderCode(VSHADER.to_string()),
-        "fshader" => Asset::ShaderCode(FSHADER.to_string()),
-        _ => Asset::None
-    }
+    return reply_rx.recv().unwrap_or_else(|e| {
+        err!(shared, "Failed to load Asset \"{name}\": {e}");
+        return Asset::None
+    })
 }

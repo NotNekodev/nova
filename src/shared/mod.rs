@@ -4,7 +4,9 @@ pub mod macros;
 
 use logger::*;
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, mpsc::Sender};
+
+use crate::shared::asset::AssetRequest;
 
 //Static (baked in) data
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -29,6 +31,9 @@ pub struct SharedData {
     pub logic_init:     Arc<Mutex<()>>,
     pub io_init:        Arc<Mutex<()>>,
     pub audio_init:     Arc<Mutex<()>>,
+
+    //channels
+    pub asset_tx:       Sender<AssetRequest>,
 
     //statistics
     pub render_stats:   Arc<Mutex<RenderStats>>,

@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 vulkano = "0.34.0"
-vulkano-shaders = "0.34.0"
 vulkano-util = "0.34.0"
 winit = "0.28.0"
 vulkano-win = "0.34.0"
 alerta = "0.1.2"
 log = "0.4.29"
 simplelog = "0.12.2"
+shaderc = "0.10.1"

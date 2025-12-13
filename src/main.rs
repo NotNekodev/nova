@@ -1,16 +1,16 @@
-use std::{sync::{Arc, Mutex}, thread, time::Duration};
+use std::{sync::{Arc, Mutex, mpsc}, thread, time::Duration};
 
-mod io;
+mod asset;
 mod audio;
 mod logic;
 mod render;
 mod shared;
 
-use crate::shared::*;
+use crate::shared::{asset::*, logger::*, *};
 
-fn main() {
-    // This structure has the references to all the shared memory in the engine
-    // This original copy belongs to the Render thread
+fn mt_main(logger: Logger) {
+    let (asset_tx,asset_rx) = mpsc::channel::<AssetRequest>();
+
     let shared = SharedData {
         io_init:    Arc::new(Mutex::new(())),
         audio_init: Arc::new(Mutex::new(())),
@@ -23,7 +23,9 @@ fn main() {
             }
         )),
 
-        logger: Arc::new(Mutex::new(logger::Logger::new(true, "logs.txt")))
+        asset_tx: asset_tx,
+
+        logger: Arc::new(Mutex::new(logger))
     };
 
     //Spawn the logic thread
@@ -34,12 +36,12 @@ fn main() {
         fatal!(shared,"Failed to spawn logic thread")
     });
 
-    //Spawn the io thread
+    //Spawn the asset thread
     let logic_shared = shared.clone();
-    thread::Builder::new().name("io".to_string()).spawn(move || {
-        io::main(logic_shared);
+    thread::Builder::new().name("asset".to_string()).spawn(move || {
+        asset::main(logic_shared,asset_rx);
     }).unwrap_or_else(|_| {
-        fatal!(shared,"Failed to spawn io thread")
+        fatal!(shared,"Failed to spawn asset thread")
     });
 
     //Spawn the audio thread
@@ -54,4 +56,15 @@ fn main() {
     thread::sleep(Duration::from_millis(1));
 
     render::main(shared);
+}
+
+fn main() {
+    //init basic stuff
+    let logger = logger::Logger::new(true, "logs.txt");
+
+    info_early!(logger, "Early initialization done!");
+
+    // Starts mutithreaded operation
+    // the structure contains information useful to all threads
+    mt_main(logger);
 }

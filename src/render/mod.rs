@@ -34,7 +34,7 @@ pub fn main(shared: SharedData){
             .unwrap(),
     );
 
-    vk_init(&window, &event_loop);
+    vk_init(&shared,&window, &event_loop);
 
     info!(shared, "Render thread initialized");
 
