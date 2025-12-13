@@ -8,7 +8,7 @@ use winit::{
     keyboard::{PhysicalKey, KeyCode},
 };
 use std::{sync::Arc, time::Instant};
-use vulkantest::{vk_init, vk_render, vk_handle_resize};
+use vulkantest::{vk_init, vk_render, vk_handle_resize, vk_shutdown};
 
 fn main_loop(_shared: &SharedData, win: &Arc<Window>) {
     vk_render(&win);
@@ -42,6 +42,7 @@ pub fn main(shared: SharedData) {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     popup_info!(shared, "being annoying on purpose", "I see you wanted to close this app so we'll give you this annoying ass popup");
+                    vk_shutdown();
                     elwt.exit();
                 }
                 WindowEvent::Resized(_) => {

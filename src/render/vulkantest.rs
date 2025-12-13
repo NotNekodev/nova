@@ -628,6 +628,14 @@ pub fn vk_init(shared: &SharedData, window: &Arc<Window>, _event_loop: &EventLoo
         ).unwrap();
 
         let (physical_device, queue_family_index) = pick_physical_device(&instance, &surface_loader, surface);
+        
+        let properties = instance.get_physical_device_properties(physical_device);
+        let device_name = std::ffi::CStr::from_ptr(properties.device_name.as_ptr())
+            .to_str()
+            .unwrap();
+
+        info!(shared, "Selected Vulkan device: {}", device_name);
+
         let (device, queue) = create_logical_device(&instance, physical_device, queue_family_index);
 
         let (swapchain_loader, swapchain, swapchain_images, swapchain_format, swapchain_extent) =
@@ -923,6 +931,12 @@ pub fn vk_handle_resize() {
         if let Some(state) = vk.borrow_mut().as_mut() {
             state.recreate_swapchain = true;
         }
+    });
+}
+
+pub fn vk_shutdown() {
+    VK_STATE.with(|vk| {
+        *vk.borrow_mut() = None;
     });
 }
 
