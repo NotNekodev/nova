@@ -14,11 +14,11 @@ impl Logger {
                     .set_level_padding(LevelPadding::Right) // pad the levels for alignent
                     .set_thread_level(LevelFilter::Error) // always show thread
                     .set_location_level(if debug {LevelFilter::Error} else {LevelFilter::Debug}) // Only show the location for debug or in debug mode
-                    .set_thread_padding(ThreadPadding::Right(4)) // pad the thread for alignent  
+                    .set_thread_padding(ThreadPadding::Right(5)) // pad the thread for alignent  
                     .set_level_color(Level::Trace, Some(Color::White))  // pretty colors :3
-                    .set_level_color(Level::Debug, Some(Color::Green))  // pretty colors :3
-                    .set_level_color(Level::Info, Some(Color::Cyan))    // pretty colors :3
-                    .set_level_color(Level::Warn, Some(Color::Yellow))  // pretty colors :3
+                    .set_level_color(Level::Debug, Some(Color::Cyan))  // pretty colors :3
+                    .set_level_color(Level::Info , Some(Color::Green))   // pretty colors :3
+                    .set_level_color(Level::Warn , Some(Color::Yellow)) // pretty colors :3
                     .set_level_color(Level::Error, Some(Color::Red))    // pretty colors :3
                     .set_thread_mode(ThreadLogMode::Names) // show thread names
                     .build();
