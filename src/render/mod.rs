@@ -1,12 +1,12 @@
 pub mod vulkantest;
 
-use crate::*;
+use crate::{render::vulkantest::vk_reload_shaders, *};
 use crate::shared::*;
 
 use winit::{
-    event::{Event, WindowEvent},
+    event::{Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{WindowBuilder, Window},
+    window::{Window, WindowBuilder},
 };
 use std::sync::{Arc};
 
@@ -49,6 +49,29 @@ pub fn main(shared: SharedData){
                 }
                 WindowEvent::Resized(_) => {
                     vk_handle_resize();
+                }
+                WindowEvent::KeyboardInput { device_id, input, is_synthetic } => {
+                    if (input.virtual_keycode == Some(VirtualKeyCode::S)) {
+                        let mut vs_data = Vec::<u32>::new();
+                        let mut fs_data = Vec::<u32>::new();
+
+                        let vs_ass = get_asset(&shared, "test_vs2");
+                        let fs_ass = get_asset(&shared, "test_fs2");
+
+                        if let Asset::Shader(mut data) = vs_ass {
+                            vs_data.append(&mut data);
+                        } else {
+                            err!(shared,"Failed to get the test vertex shader");
+                        }
+
+                        if let Asset::Shader(mut data) = fs_ass {
+                            fs_data.append(&mut data);
+                        } else {
+                            err!(shared,"Failed to get the test fragment shader");
+                        }
+
+                        vk_reload_shaders(vs_data.as_slice(), fs_data.as_slice());
+                    }
                 }
                 _ => (),
             },
