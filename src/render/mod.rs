@@ -1,5 +1,7 @@
 pub mod vulkantest;
+pub mod imgui_winit;
 
+use crate::render::vulkantest::{vk_with_imgui_ui, vk_with_imgui_ctx, VK_STATE};
 use crate::{render::vulkantest::vk_reload_shaders, *};
 use crate::shared::*;
 
@@ -15,7 +17,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes, WindowId},
 };
-
+use winit::window::CursorGrabMode;
 use vulkantest::{vk_handle_resize, vk_init, vk_render, vk_shutdown};
 
 struct App {
@@ -50,6 +52,9 @@ impl ApplicationHandler for App {
                 .unwrap(),
         );
 
+        window.set_cursor_grab(CursorGrabMode::None).unwrap();
+        window.set_cursor_visible(true);
+
         vk_init(&self.shared, &window);
         info!(self.shared, "Render thread initialized");
 
@@ -59,13 +64,21 @@ impl ApplicationHandler for App {
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        _id: WindowId,
+        id: WindowId,
         event: WindowEvent,
     ) {
         let window = match &self.window {
             Some(w) => w,
             None => return,
         };
+
+        let full = winit::event::Event::WindowEvent { window_id: id, event: event.clone() };
+        VK_STATE.with(|state| {
+            let mut state = state.borrow_mut();
+            if let Some(s) = state.as_mut() {
+                s.imgui_platform.handle_event(&mut s.imgui, window, &full);
+            }
+        });
 
         match event {
             WindowEvent::CloseRequested => {
@@ -123,6 +136,23 @@ impl ApplicationHandler for App {
                         self.fps_timer = Instant::now();
                     }
                 }
+
+                vk_with_imgui_ctx(|ctx| {
+                    ctx.io_mut().delta_time = delta.as_secs_f32();
+                });
+
+                vk_with_imgui_ui(|ui| {
+                    let fps = ui.io().framerate;
+                    let dt  = ui.io().delta_time;
+
+                    ui.window("Performance")
+                        .always_auto_resize(true)
+                        .build(|| {
+                            ui.text(format!("FPS: {:.1}", fps));
+                            ui.text(format!("Delta time: {:.3}", dt));
+                        });
+                });
+
 
                 vk_render(window);
                 window.request_redraw();

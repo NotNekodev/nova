@@ -519,16 +519,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "imgui-winit-support"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff7fcccfa9efab56c94274c0fec9939bb14149342b49e6a425883a5b7dda6a3f"
-dependencies = [
- "imgui",
- "winit",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -735,7 +725,6 @@ dependencies = [
  "ash-window",
  "imgui",
  "imgui-rs-vulkan-renderer",
- "imgui-winit-support",
  "log",
  "raw-window-handle",
  "shaderc",
