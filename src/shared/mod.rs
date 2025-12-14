@@ -9,14 +9,14 @@ use std::sync::{Arc, Mutex, OnceLock, mpsc::Sender};
 use crate::shared::asset::AssetRequest;
 
 //Static (baked in) data
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Global data that can only be set once
 pub struct GlobalData {
     pub project_dir: String
 }
 
-static CONSTANT_DATA: OnceLock<GlobalData> = OnceLock::new();
+pub static CONSTANT_DATA: OnceLock<GlobalData> = OnceLock::new();
 
 //Shared data that is accessed by threads
 #[derive(Clone)]

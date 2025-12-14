@@ -67,6 +67,7 @@ thread_local! {
 }
 
 unsafe fn create_instance(entry: &Entry, window: &PWindow) -> Instance {
+    //NOTE: we know that we can safely unwrap here as we won't panic unless something really bad happened
     let app_name = CString::new("Nova GE").unwrap();
     let engine_name = CString::new("Nova Engine").unwrap();
 

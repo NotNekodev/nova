@@ -56,46 +56,54 @@ static FSHADER_2: &str = r"
                     }
                 ";
 
-fn compile_glsl(code: &str, kind: ShaderKind, c: &Compiler, o: &CompileOptions) -> Option<Vec<u32>>{
-    let result = c.compile_into_spirv(
+fn compile_glsl(shared: &SharedData,code: &str, kind: ShaderKind, c: &Compiler, o: &CompileOptions) -> Option<Vec<u32>>{
+    return match c.compile_into_spirv(
         code, kind,
-        "shader.glsl", "main", Some(o));
-
-    if result.is_err() {
-        
-        return None;
-    }
-
-    return Some(Vec::from(result.unwrap().as_binary()));
+        "shader.glsl", "main", Some(o)) {
+            Ok(v) => Some(Vec::from(v.as_binary())),
+            Err(e) => {
+                err!(shared, "Failed to compile shader: {e}");
+                return None
+            },
+        }
 }
 
 pub fn main(shared: SharedData, rx: Receiver<AssetRequest>){
-    if let Ok(mut _lock) = shared.asset_init.lock() {
-        info!(shared,"Asset thread initialized");
-    }
+    let c;
+    let o;
 
-    let c = Compiler::new().unwrap();
-    let o = CompileOptions::new().unwrap();
+    if let Ok(mut _lock) = shared.asset_init.lock() {
+        c = Compiler::new().unwrap_or_else(|e| {
+            fatal!(shared,"Failed to create shader compiler: {e}");
+        });
+        o = CompileOptions::new().unwrap_or_else(|e| {
+            fatal!(shared,"Failed to create shader compiler options: {e}");
+        });
+
+        info!(shared,"Asset thread initialized");
+    } else {
+        fatal!(shared, "Failed to aquire asset initialization lock");
+    }
 
     //HACK: dummy backend
     //TODO: implement actual asset pack
     for req in rx {
         let ass: Asset = match req.name.as_str() {
-            "test_vs" =>  match compile_glsl(VSHADER,ShaderKind::Vertex,&c,&o) {
+            "test_vs" =>  match compile_glsl(&shared,VSHADER,ShaderKind::Vertex,&c,&o) {
                                 Some(d) => Asset::Shader(d),
                                 Option::None => Asset::None
                             },
-            "test_fs" => match compile_glsl(FSHADER,ShaderKind::Fragment,&c,&o) {
+            "test_fs" => match compile_glsl(&shared,FSHADER,ShaderKind::Fragment,&c,&o) {
                                 Some(d) => Asset::Shader(d),
                                 Option::None => {
                                     Asset::None
                                 }
                             },
-            "test_vs2" =>  match compile_glsl(VSHADER_2,ShaderKind::Vertex,&c,&o) {
+            "test_vs2" =>  match compile_glsl(&shared,VSHADER_2,ShaderKind::Vertex,&c,&o) {
                                 Some(d) => Asset::Shader(d),
                                 Option::None => Asset::None
                             },
-            "test_fs2" => match compile_glsl(FSHADER_2,ShaderKind::Fragment,&c,&o) {
+            "test_fs2" => match compile_glsl(&shared,FSHADER_2,ShaderKind::Fragment,&c,&o) {
                                 Some(d) => Asset::Shader(d),
                                 Option::None => {
                                     Asset::None

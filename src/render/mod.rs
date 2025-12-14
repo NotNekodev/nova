@@ -21,6 +21,9 @@ pub fn main(shared: SharedData) {
 
     vk::init(&shared, &window);
 
+    info!(shared,"Render thread initialized");
+    info!(shared,"Nova engine v{VERSION} initialized successfully!");
+
     let mut last_frame_time = Instant::now();
     let mut frame_count = 0;
     let mut fps_timer = Instant::now();
