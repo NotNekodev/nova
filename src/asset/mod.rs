@@ -70,7 +70,7 @@ fn compile_glsl(code: &str, kind: ShaderKind, c: &Compiler, o: &CompileOptions) 
 }
 
 pub fn main(shared: SharedData, rx: Receiver<AssetRequest>){
-    if let Ok(mut _lock) = shared.io_init.lock() {
+    if let Ok(mut _lock) = shared.asset_init.lock() {
         info!(shared,"Asset thread initialized");
     }
 

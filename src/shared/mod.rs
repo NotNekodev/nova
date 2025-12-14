@@ -29,7 +29,7 @@ pub struct RenderStats {
 pub struct SharedData {
     //init locks
     pub logic_init:     Arc<Mutex<()>>,
-    pub io_init:        Arc<Mutex<()>>,
+    pub asset_init:        Arc<Mutex<()>>,
     pub audio_init:     Arc<Mutex<()>>,
 
     //channels
