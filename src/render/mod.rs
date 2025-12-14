@@ -1,4 +1,5 @@
 pub mod vk;
+pub mod imgui_glfw_support; // lets pretend this is the crate okay?
 
 use crate::{*,shared::*};
 
@@ -15,7 +16,8 @@ pub fn main(shared: SharedData) {
             fatal!(shared,"Failed to create GLFW window");
         });
 
-    window.set_key_polling(true);
+    window.set_cursor_mode(glfw::CursorMode::Normal);
+    window.set_all_polling(true);
 
     vk::init(&shared, &window);
 
@@ -25,6 +27,35 @@ pub fn main(shared: SharedData) {
 
     while !window.should_close() {
         glfw.poll_events();
+
+        for (_,e) in glfw::flush_messages(&events) {
+            vk::handle_event(&window, &e);
+            match e {
+                glfw::WindowEvent::Close => {
+                    window.set_should_close(true);
+                },
+                glfw::WindowEvent::Key(k,_,_,_)  => {
+                    if k == glfw::Key::S {
+                        let mut vs_data = Vec::<u32>::new();
+                        let mut fs_data = Vec::<u32>::new();
+
+                        match get_asset(&shared, "test_vs2") {
+                            Asset::Shader(mut data) => vs_data.append(&mut data),
+                            _ => err!(shared, "Failed to get the test vertex shader"),
+                        }
+
+                        match get_asset(&shared, "test_fs2") {
+                            Asset::Shader(mut data) => fs_data.append(&mut data),
+                            _ => err!(shared, "Failed to get the test fragment shader"),
+                        }
+
+                        vk::reload_shaders(&vs_data, &fs_data);
+                    }
+                },
+                glfw::WindowEvent::Size(_,_) => vk::handle_resize(),
+                _ => ()
+            }
+        }
 
         let now = Instant::now();
         let delta = now.duration_since(last_frame_time);
@@ -47,34 +78,16 @@ pub fn main(shared: SharedData) {
             }
         }
 
+        vk::with_imgui_ctx(|ctx| {
+            ctx.io_mut().delta_time = delta.as_secs_f32();
+        });
+
+        vk::with_imgui_ui(&window,|ui| {
+            let mut opened = false;
+            ui.show_demo_window(&mut opened);
+        });
+
         vk::render(&window);
-
-        for (_,e) in glfw::flush_messages(&events) {
-            match e {
-                glfw::WindowEvent::Close => {
-                    window.set_should_close(true);
-                },
-                glfw::WindowEvent::Key(k,_,_,_)  => {
-                    if k == glfw::Key::S {
-                        let mut vs_data = Vec::<u32>::new();
-                        let mut fs_data = Vec::<u32>::new();
-
-                        match get_asset(&shared, "test_vs2") {
-                            Asset::Shader(mut data) => vs_data.append(&mut data),
-                            _ => err!(shared, "Failed to get the test vertex shader"),
-                        }
-
-                        match get_asset(&shared, "test_fs2") {
-                            Asset::Shader(mut data) => fs_data.append(&mut data),
-                            _ => err!(shared, "Failed to get the test fragment shader"),
-                        }
-
-                        vk::reload_shaders(&vs_data, &fs_data);
-                    }
-                }
-                _ => ()
-            }
-        }
     }
 
     vk::shutdown();

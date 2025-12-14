@@ -1,13 +1,15 @@
 use std::ffi::CString;
-use std::sync::Arc;
 
 use crate::*;
 use crate::shared::*;
 use crate::shared::asset::*;
+use super::imgui_glfw_support::*;
 
-use glfw::{PWindow};
+use glfw::*;
 use ash::*;
 use raw_window_handle::*;
+use imgui::*;
+use imgui_rs_vulkan_renderer::*;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -47,12 +49,21 @@ pub struct VkState {
     pub recreate_swapchain: bool,
     pub vs_module: vk::ShaderModule,
     pub fs_module: vk::ShaderModule,
+
+
+    // ImGui specific
+    pub imgui: imgui::Context,
+    pub imgui_platform: ImguiGLFWSupport,
+    pub imgui_renderer: Renderer,
+    pub frametime_history: Vec<f32>,
+    pub imgui_draw_data: Option<*const imgui::DrawData>,
 }
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
+const FRAMETIME_HISTORY_SIZE: usize = 120;
 
 thread_local! {
-    static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
+    pub static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
 }
 
 unsafe fn create_instance(entry: &Entry, window: &PWindow) -> Instance {
@@ -614,6 +625,22 @@ unsafe fn create_sync_objects(device: &Device) -> (Vec<vk::Semaphore>, Vec<vk::S
     }
 }
 
+fn init_imgui(window: &PWindow) -> (imgui::Context, ImguiGLFWSupport) {
+    let mut imgui = imgui::Context::create();
+    imgui.set_ini_filename(None);
+
+    let platform: ImguiGLFWSupport = ImguiGLFWSupport::init(&mut imgui, window);
+
+    imgui.fonts().add_font(&[FontSource::DefaultFontData {
+        config: Some(FontConfig {
+            size_pixels: 13.0,
+            ..FontConfig::default()
+        }),
+    }]);
+
+    (imgui, platform)
+}
+
 pub fn init(shared: &SharedData, window: &PWindow) {
     unsafe {
         let entry = Entry::load().expect("Failed to load Vulkan");
@@ -690,6 +717,19 @@ pub fn init(shared: &SharedData, window: &PWindow) {
         let command_buffers = create_command_buffers(&device, command_pool, MAX_FRAMES_IN_FLIGHT);
         let (image_available_semaphores, render_finished_semaphores, in_flight_fences) = create_sync_objects(&device);
 
+        let (mut imgui, imgui_platform) = init_imgui(window);
+
+        let imgui_renderer = Renderer::with_default_allocator(
+            &instance,
+            physical_device,
+            device.clone(),
+            queue,
+            command_pool,
+            render_pass,
+            &mut imgui,
+            Default::default()
+        ).expect("Failed to initialize imgui renderer");
+
         let state = VkState {
             entry,
             instance,
@@ -720,6 +760,11 @@ pub fn init(shared: &SharedData, window: &PWindow) {
             recreate_swapchain: false,
             vs_module,
             fs_module,
+            imgui,
+            imgui_platform,
+            imgui_renderer,
+            frametime_history: vec![0.0; FRAMETIME_HISTORY_SIZE],
+            imgui_draw_data: None
         };
 
         VK_STATE.with(|vk| {
@@ -727,6 +772,15 @@ pub fn init(shared: &SharedData, window: &PWindow) {
         });
     }
 }
+
+pub fn handle_event(window: &PWindow, event: &glfw::WindowEvent) {
+    VK_STATE.with(|vk| {
+        if let Some(state) = vk.borrow_mut().as_mut() {
+            state.imgui_platform.handle_window_event(&mut state.imgui, window, event);
+        }
+    });
+}
+
 
 pub fn reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
     VK_STATE.with(|vk| {
@@ -758,6 +812,35 @@ pub fn reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
             state.pipeline = pipeline;
             state.pipeline_layout = pipeline_layout;
         }
+    });
+}
+
+pub fn with_imgui_ctx<F, R>(f: F) -> Option<R>
+where
+    F: FnOnce(&mut imgui::Context) -> R,
+{
+    VK_STATE.with(|vk| {
+        vk.borrow_mut().as_mut().map(|state| f(&mut state.imgui))
+    })
+}
+
+pub fn with_imgui_ui<F>(win: &PWindow,f: F)
+where
+    F: FnOnce(&imgui::Ui),
+{
+    VK_STATE.with(|vk| {
+        let mut state = vk.borrow_mut();
+        let state = state.as_mut().expect("VK_STATE not initialized");
+
+        state.imgui_platform
+            .prepare_frame(&mut state.imgui, win);
+
+        let ui = state.imgui.frame();
+
+        f(&ui);
+
+        let draw_data = state.imgui.render();
+        state.imgui_draw_data = Some(draw_data as *const _);
     });
 }
 
@@ -892,6 +975,13 @@ pub fn render(window: &PWindow) {
 
             state.device.cmd_draw(command_buffer, 3, 1, 0, 0);
 
+            if let Some(draw_data) = state.imgui_draw_data.take() {
+                state.imgui_renderer
+                    .cmd_draw(command_buffer, &*draw_data)
+                    .expect("ImGui draw failed");
+            }
+            
+
             state.device.cmd_end_render_pass(command_buffer);
 
             state.device.end_command_buffer(command_buffer).unwrap();
@@ -951,47 +1041,52 @@ pub fn handle_resize() {
 
 pub fn shutdown() {
     VK_STATE.with(|vk| {
-        *vk.borrow_mut() = None;
-    });
-}
+        let mut state_opt = vk.borrow_mut();
+        if let Some(state) = state_opt.take() {
+            unsafe {
+                state.device.device_wait_idle().unwrap();
 
-impl Drop for VkState {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
+                drop(state.imgui_renderer);
 
-            for i in 0..MAX_FRAMES_IN_FLIGHT {
-                self.device.destroy_semaphore(self.image_available_semaphores[i], None);
-                self.device.destroy_semaphore(self.render_finished_semaphores[i], None);
-                self.device.destroy_fence(self.in_flight_fences[i], None);
+                for semaphore in state.image_available_semaphores {
+                    state.device.destroy_semaphore(semaphore, None);
+                }
+                for semaphore in state.render_finished_semaphores {
+                    state.device.destroy_semaphore(semaphore, None);
+                }
+                for fence in state.in_flight_fences {
+                    state.device.destroy_fence(fence, None);
+                }
+
+                state.device.destroy_buffer(state.vertex_buffer, None);
+                state.device.free_memory(state.vertex_buffer_memory, None);
+
+                state.device.destroy_command_pool(state.command_pool, None);
+
+                for framebuffer in state.framebuffers {
+                    state.device.destroy_framebuffer(framebuffer, None);
+                }
+
+                state.device.destroy_pipeline(state.pipeline, None);
+                state.device.destroy_pipeline_layout(state.pipeline_layout, None);
+
+                state.device.destroy_render_pass(state.render_pass, None);
+
+                state.device.destroy_shader_module(state.vs_module, None);
+                state.device.destroy_shader_module(state.fs_module, None);
+
+                for image_view in state.swapchain_image_views {
+                    state.device.destroy_image_view(image_view, None);
+                }
+
+                state.swapchain_loader.destroy_swapchain(state.swapchain, None);
+
+                state.surface_loader.destroy_surface(state.surface, None);
+
+                state.device.destroy_device(None);
+
+                state.instance.destroy_instance(None);
             }
-
-            self.device.destroy_buffer(self.vertex_buffer, None);
-            self.device.free_memory(self.vertex_buffer_memory, None);
-
-            self.device.destroy_command_pool(self.command_pool, None);
-
-            for &framebuffer in &self.framebuffers {
-                self.device.destroy_framebuffer(framebuffer, None);
-            }
-
-            self.device.destroy_pipeline(self.pipeline, None);
-            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
-
-            self.device.destroy_render_pass(self.render_pass, None);
-
-            for &image_view in &self.swapchain_image_views {
-                self.device.destroy_image_view(image_view, None);
-            }
-
-            self.swapchain_loader.destroy_swapchain(self.swapchain, None);
-
-            self.device.destroy_shader_module(self.vs_module, None);
-            self.device.destroy_shader_module(self.fs_module, None);
-
-            self.device.destroy_device(None);
-            self.surface_loader.destroy_surface(self.surface, None);
-            self.instance.destroy_instance(None);
         }
-    }
+    });
 }
