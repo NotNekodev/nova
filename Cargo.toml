@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winit = { version = "0.30.12", features = ["x11", "wayland"] }
 alerta = "0.1.2"
 log = "0.4.29"
 simplelog = "0.12.2"
@@ -13,6 +12,5 @@ ash = "0.38.0"
 ash-window = "0.13.0"
 raw-window-handle = "0.6"
 imgui = "0.12.0"
-imgui-winit-support = "0.13.0"
 imgui-rs-vulkan-renderer = "1.16.0"
 glfw = "0.61.0"

@@ -5,7 +5,7 @@ use crate::*;
 use crate::shared::*;
 use crate::shared::asset::*;
 
-use winit::{window::*};
+use glfw::{PWindow};
 use ash::*;
 use raw_window_handle::*;
 
@@ -55,7 +55,7 @@ thread_local! {
     static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
 }
 
-unsafe fn create_instance(entry: &Entry, window: &Window) -> Instance {
+unsafe fn create_instance(entry: &Entry, window: &PWindow) -> Instance {
     let app_name = CString::new("Nova GE").unwrap();
     let engine_name = CString::new("Nova Engine").unwrap();
 
@@ -151,7 +151,7 @@ unsafe fn create_swapchain(
     physical_device: vk::PhysicalDevice,
     surface_loader: &ash::khr::surface::Instance,
     surface: vk::SurfaceKHR,
-    window: &Window,
+    window: &PWindow,
 ) -> (ash::khr::swapchain::Device, vk::SwapchainKHR, Vec<vk::Image>, vk::Format, vk::Extent2D) {
     unsafe {
         let capabilities = surface_loader
@@ -178,10 +178,10 @@ unsafe fn create_swapchain(
             vk::PresentModeKHR::FIFO
         };
 
-        let window_size = window.inner_size();
+        let (window_width,window_height) = window.get_size();
         let extent = vk::Extent2D {
-            width: window_size.width.clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width),
-            height: window_size.height.clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height),
+            width:(window_width as u32).clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width),
+            height: (window_height as u32).clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height),
         };
 
         let image_count = (capabilities.min_image_count + 1).min(
@@ -614,7 +614,7 @@ unsafe fn create_sync_objects(device: &Device) -> (Vec<vk::Semaphore>, Vec<vk::S
     }
 }
 
-pub fn vk_init(shared: &SharedData, window: &Arc<Window>) {
+pub fn init(shared: &SharedData, window: &PWindow) {
     unsafe {
         let entry = Entry::load().expect("Failed to load Vulkan");
         let instance = create_instance(&entry, window);
@@ -728,7 +728,7 @@ pub fn vk_init(shared: &SharedData, window: &Arc<Window>) {
     }
 }
 
-pub fn vk_reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
+pub fn reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
     VK_STATE.with(|vk| {
         let mut state_opt = vk.borrow_mut();
         let state = match state_opt.as_mut() {
@@ -761,7 +761,7 @@ pub fn vk_reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
     });
 }
 
-unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &Window) {
+unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &PWindow) {
     unsafe {
         state.device.device_wait_idle().unwrap();
 
@@ -801,7 +801,7 @@ unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &Window) {
     }
 }
 
-pub fn vk_render(window: &Arc<Window>) {
+pub fn render(window: &PWindow) {
     VK_STATE.with(|vk| {
         let mut state_opt = vk.borrow_mut();
         let state = match state_opt.as_mut() {
@@ -809,8 +809,8 @@ pub fn vk_render(window: &Arc<Window>) {
             Option::None => return,
         };
 
-        let window_size = window.inner_size();
-        if window_size.width == 0 || window_size.height == 0 {
+        let (window_width,window_height) = window.get_size();
+        if window_width == 0 || window_height == 0 {
             return;
         }
 
@@ -941,7 +941,7 @@ pub fn vk_render(window: &Arc<Window>) {
     });
 }
 
-pub fn vk_handle_resize() {
+pub fn handle_resize() {
     VK_STATE.with(|vk| {
         if let Some(state) = vk.borrow_mut().as_mut() {
             state.recreate_swapchain = true;
@@ -949,7 +949,7 @@ pub fn vk_handle_resize() {
     });
 }
 
-pub fn vk_shutdown() {
+pub fn shutdown() {
     VK_STATE.with(|vk| {
         *vk.borrow_mut() = None;
     });

@@ -1,134 +1,90 @@
-pub mod vulkantest;
+pub mod vk;
 
-use std::{time::*};
 use crate::{*,shared::*};
 
-use winit::{ application::*, event::*, event_loop::*, keyboard::*, window::*};
-use vulkantest::*;
-
-struct App {
-    shared: SharedData,
-    window: Option<Arc<Window>>,
-    last_frame_time: Instant,
-    frame_count: u32,
-    fps_timer: Instant,
-}
-
-impl App {
-    fn new(shared: SharedData) -> Self {
-        Self {
-            shared,
-            window: None,
-            last_frame_time: Instant::now(),
-            frame_count: 0,
-            fps_timer: Instant::now(),
-        }
-    }
-}
-
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = Arc::new(
-            event_loop
-                .create_window(
-                    WindowAttributes::default()
-                        .with_title("Nova GE Window")
-                        .with_decorations(true),
-                )
-                .unwrap(),
-        );
-
-        vk_init(&self.shared, &window);
-        info!(self.shared, "Render thread initialized");
-
-        self.window = Some(window);
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _id: WindowId,
-        event: WindowEvent,
-    ) {
-        let window = match &self.window {
-            Some(w) => w,
-            None => return,
-        };
-
-        match event {
-            WindowEvent::CloseRequested => {
-                popup_info!(
-                    self.shared,
-                    "being annoying on purpose",
-                    "I see you wanted to close this app so we'll give you this annoying ass popup"
-                );
-                vk_shutdown();
-                event_loop.exit();
-            }
-
-            WindowEvent::Resized(_) => {
-                vk_handle_resize();
-            }
-
-            WindowEvent::KeyboardInput {
-                event: KeyEvent { physical_key, .. },
-                ..
-            } => {
-                if physical_key == PhysicalKey::Code(KeyCode::KeyS) {
-                    let mut vs_data = Vec::<u32>::new();
-                    let mut fs_data = Vec::<u32>::new();
-
-                    match get_asset(&self.shared, "test_vs2") {
-                        Asset::Shader(mut data) => vs_data.append(&mut data),
-                        _ => err!(self.shared, "Failed to get the test vertex shader"),
-                    }
-
-                    match get_asset(&self.shared, "test_fs2") {
-                        Asset::Shader(mut data) => fs_data.append(&mut data),
-                        _ => err!(self.shared, "Failed to get the test fragment shader"),
-                    }
-
-                    vk_reload_shaders(&vs_data, &fs_data);
-                }
-            }
-
-            WindowEvent::RedrawRequested => {
-                let now = Instant::now();
-                let delta = now.duration_since(self.last_frame_time);
-                self.last_frame_time = now;
-                self.frame_count += 1;
-
-                if let Ok(mut stats) = self.shared.render_stats.lock() {
-                    stats.frametime = delta.as_micros();
-                    if self.fps_timer.elapsed() >= Duration::from_secs(1) {
-                        stats.framerate =
-                            self.frame_count as f32 / self.fps_timer.elapsed().as_secs_f32();
-                        println!(
-                            "FPS: {:.2}, Frametime: {} microseconds",
-                            stats.framerate, stats.frametime
-                        );
-                        self.frame_count = 0;
-                        self.fps_timer = Instant::now();
-                    }
-                }
-
-                vk_render(window);
-                window.request_redraw();
-            }
-
-            _ => {}
-        }
-    }
-}
-
 pub fn main(shared: SharedData) {
-    drop(shared.logic_init.lock());
-    drop(shared.io_init.lock());
-    drop(shared.audio_init.lock());
+    let mut glfw = glfw::init(glfw::fail_on_errors).unwrap_or_else(|e| {
+        fatal!(shared, "Failed to initialize GLFW: {e}");
+    });
 
-    let event_loop = EventLoop::new().unwrap();
-    event_loop.set_control_flow(ControlFlow::Poll);
+    //we are not using OpenGL bruv
+    glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
 
-    let mut app = App::new(shared);
-    event_loop.run_app(&mut app).unwrap();
+    let (mut window, events) = glfw.create_window(800, 600, "Nova GE window", glfw::WindowMode::Windowed)
+        .unwrap_or_else(|| {
+            fatal!(shared,"Failed to create GLFW window");
+        });
+
+    window.set_key_polling(true);
+
+    vk::init(&shared, &window);
+
+    let mut last_frame_time = Instant::now();
+    let mut frame_count = 0;
+    let mut fps_timer = Instant::now();
+
+    while !window.should_close() {
+        glfw.poll_events();
+
+        let now = Instant::now();
+        let delta = now.duration_since(last_frame_time);
+        last_frame_time = now;
+        frame_count += 1;
+
+        if fps_timer.elapsed() >= Duration::from_secs(1) {
+
+            //FIXME: stats updates may block this thread and make it wait
+            if let Ok(mut stats) = shared.render_stats.lock() {
+                stats.frametime = delta.as_micros();
+                stats.framerate =
+                    frame_count as f32 / fps_timer.elapsed().as_secs_f32();
+                println!(
+                    "FPS: {:.2}, Frametime: {} microseconds",
+                    stats.framerate, stats.frametime
+                );
+                frame_count = 0;
+                fps_timer = Instant::now();
+            }
+        }
+
+        vk::render(&window);
+
+        for (_,e) in glfw::flush_messages(&events) {
+            match e {
+                glfw::WindowEvent::Close => {
+                    window.set_should_close(true);
+                },
+                glfw::WindowEvent::Key(k,_,_,_)  => {
+                    if k == glfw::Key::S {
+                        let mut vs_data = Vec::<u32>::new();
+                        let mut fs_data = Vec::<u32>::new();
+
+                        match get_asset(&shared, "test_vs2") {
+                            Asset::Shader(mut data) => vs_data.append(&mut data),
+                            _ => err!(shared, "Failed to get the test vertex shader"),
+                        }
+
+                        match get_asset(&shared, "test_fs2") {
+                            Asset::Shader(mut data) => fs_data.append(&mut data),
+                            _ => err!(shared, "Failed to get the test fragment shader"),
+                        }
+
+                        vk::reload_shaders(&vs_data, &fs_data);
+                    }
+                }
+                _ => ()
+            }
+        }
+    }
+
+    vk::shutdown();
+
+    //I'll still be a little troll
+    popup_info!(
+        shared,
+        "being annoying on purpose",
+        "I see you wanted to close this app so we'll give you this annoying ass popup"
+    );
+
+    //drop takes care of destroying the window
 }
