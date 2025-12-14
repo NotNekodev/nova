@@ -1,12 +1,12 @@
-use std::{sync::{Arc, Mutex, mpsc}, thread, time::Duration};
-
 mod asset;
 mod audio;
 mod logic;
 mod render;
 mod shared;
 
-use crate::shared::{asset::*, logger::*, *};
+use std::{sync::*, thread, time::*};
+
+use crate::shared::{*, asset::*, logger::*};
 
 fn mt_main(logger: Logger) {
     let (asset_tx,asset_rx) = mpsc::channel::<AssetRequest>();

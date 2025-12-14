@@ -1,13 +1,13 @@
-use ash::vk;
-use ash::{Device, Entry, Instance};
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::ffi::CString;
 use std::sync::Arc;
-use winit::{event_loop::EventLoop, window::Window};
 
 use crate::*;
 use crate::shared::*;
 use crate::shared::asset::*;
+
+use winit::{window::*};
+use ash::*;
+use raw_window_handle::*;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -58,7 +58,7 @@ thread_local! {
 unsafe fn create_instance(entry: &Entry, window: &Window) -> Instance {
     let app_name = CString::new("Nova GE").unwrap();
     let engine_name = CString::new("Nova Engine").unwrap();
-    
+
     let app_info = vk::ApplicationInfo {
         p_application_name: app_name.as_ptr(),
         application_version: vk::make_api_version(0, 1, 0, 0),

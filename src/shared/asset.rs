@@ -1,9 +1,8 @@
 use std::sync::mpsc;
-use crate::*;
 
+use crate::*;
 use super::SharedData;
 
-#[allow(dead_code)]
 // Make Asset public so it can appear in a public function’s signature.
 pub enum Asset {
     Shader(Vec<u32>),
@@ -15,7 +14,6 @@ pub struct AssetRequest {
     pub sender: mpsc::Sender<Asset>
 }
 
-#[allow(dead_code)]
 pub fn get_asset(shared: &SharedData,name: &str) -> Asset {
     //reply channel
     let (reply_tx, reply_rx) = mpsc::channel::<Asset>();

@@ -1,22 +1,10 @@
 pub mod vulkantest;
 
-use crate::{render::vulkantest::vk_reload_shaders, *};
-use crate::shared::*;
+use std::{time::*};
+use crate::{*,shared::*};
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
-
-use winit::{
-    application::ApplicationHandler,
-    event::{KeyEvent, WindowEvent},
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowAttributes, WindowId},
-};
-
-use vulkantest::{vk_handle_resize, vk_init, vk_render, vk_shutdown};
+use winit::{ application::*, event::*, event_loop::*, keyboard::*, window::*};
+use vulkantest::*;
 
 struct App {
     shared: SharedData,

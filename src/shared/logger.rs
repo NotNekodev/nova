@@ -1,7 +1,9 @@
-use std::{fmt::Arguments, fs::File, vec};
+use std::{vec, fmt::*, fs::*};
+
 use alerta::*;
-use log::{Log, Record};
+use log::*;
 use simplelog::*;
+
 pub struct Logger {
     backend: CombinedLogger
 }
