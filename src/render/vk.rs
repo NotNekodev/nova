@@ -981,7 +981,6 @@ pub fn render(window: &PWindow) {
                     .cmd_draw(command_buffer, &*draw_data)
                     .expect("ImGui draw failed");
             }
-            
 
             state.device.cmd_end_render_pass(command_buffer);
 

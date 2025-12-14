@@ -12,11 +12,12 @@ use crate::shared::asset::AssetRequest;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Global data that can only be set once
+#[derive(Debug)]
 pub struct GlobalData {
     pub project_dir: String
 }
 
-pub static CONSTANT_DATA: OnceLock<GlobalData> = OnceLock::new();
+pub static GLOBAL_DATA: OnceLock<GlobalData> = OnceLock::new();
 
 //Shared data that is accessed by threads
 #[derive(Clone)]

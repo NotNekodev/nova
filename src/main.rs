@@ -64,9 +64,18 @@ fn mt_main(logger: Logger) {
     render::main(shared);
 }
 
+fn init_global_data(logger: &Logger) {
+    //NOTE: there is no fuckin way this can fail
+    GLOBAL_DATA.set(GlobalData { project_dir: ".".to_string() }).expect("Couldn't set global data");
+
+    info_early!(logger, "Project dir: {}", GLOBAL_DATA.get().unwrap().project_dir);
+}
+
 fn main() {
     //init basic stuff
     let logger = logger::Logger::new(true, "logs.txt");
+
+    init_global_data(&logger);
 
     info_early!(logger, "Early initialization done!");
 
