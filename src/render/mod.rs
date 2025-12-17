@@ -1,7 +1,10 @@
 pub mod vk;
-pub mod imgui_glfw_support; // lets pretend this is the crate okay?
+pub mod imgui_glfw_support;
+mod renderer;
+// lets pretend this is the crate okay?
 
 use crate::{*,shared::*};
+use crate::render::renderer::VulkanRenderer;
 
 pub fn main(shared: SharedData) {
     let mut glfw = glfw::init(glfw::fail_on_errors).unwrap_or_else(|e| {
@@ -19,7 +22,7 @@ pub fn main(shared: SharedData) {
     window.set_cursor_mode(glfw::CursorMode::Normal);
     window.set_all_polling(true);
 
-    vk::init(&shared, &window);
+    let mut renderer: VulkanRenderer =  vk::init(&shared, &window);
 
     info!(shared,"Render thread initialized");
     info!(shared,"Nova engine v{VERSION} initialized successfully!");
@@ -32,7 +35,7 @@ pub fn main(shared: SharedData) {
         glfw.poll_events();
 
         for (_,e) in glfw::flush_messages(&events) {
-            vk::handle_event(&window, &e);
+            renderer.handle_event(&window, &e);
             match e {
                 glfw::WindowEvent::Close => {
                     window.set_should_close(true);
@@ -52,10 +55,10 @@ pub fn main(shared: SharedData) {
                             _ => err!(shared, "Failed to get the test fragment shader"),
                         }
 
-                        vk::reload_shaders(&vs_data, &fs_data);
+                        renderer.reload_shaders(&vs_data, &fs_data);
                     }
                 },
-                glfw::WindowEvent::Size(_,_) => vk::handle_resize(),
+                glfw::WindowEvent::Size(x,y) => renderer.resize(x as u32, y as u32),
                 _ => ()
             }
         }
@@ -81,19 +84,19 @@ pub fn main(shared: SharedData) {
             }
         }
 
-        vk::with_imgui_ctx(|ctx| {
+        renderer.with_imgui_ctx(|ctx| {
             ctx.io_mut().delta_time = delta.as_secs_f32();
         });
 
-        vk::with_imgui_ui(&window,|ui| {
+        renderer.with_imgui_ui(&window,|ui| {
             let mut opened = false;
             ui.show_demo_window(&mut opened);
         });
 
-        vk::render(&window);
+        renderer.render(&window);
     }
 
-    vk::shutdown();
+    renderer.destroy();
 
     //I'll still be a little troll
     popup_info!(

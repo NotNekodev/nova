@@ -10,6 +10,7 @@ use ash::*;
 use raw_window_handle::*;
 use imgui::*;
 use imgui_rs_vulkan_renderer::*;
+use crate::render::renderer::VulkanRenderer;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -54,17 +55,13 @@ pub struct VkState {
     // ImGui specific
     pub imgui: imgui::Context,
     pub imgui_platform: ImguiGLFWSupport,
-    pub imgui_renderer: Renderer,
+    pub imgui_renderer: Option<Renderer>,
     pub frametime_history: Vec<f32>,
     pub imgui_draw_data: Option<*const imgui::DrawData>,
 }
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 const FRAMETIME_HISTORY_SIZE: usize = 120;
-
-thread_local! {
-    pub static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
-}
 
 unsafe fn create_instance(entry: &Entry, window: &PWindow) -> Instance {
     //NOTE: we know that we can safely unwrap here as we won't panic unless something really bad happened
@@ -642,7 +639,7 @@ fn init_imgui(window: &PWindow) -> (imgui::Context, ImguiGLFWSupport) {
     (imgui, platform)
 }
 
-pub fn init(shared: &SharedData, window: &PWindow) {
+pub fn init(shared: &SharedData, window: &PWindow) -> VulkanRenderer {
     unsafe {
         let entry = Entry::load().expect("Failed to load Vulkan");
         let instance = create_instance(&entry, window);
@@ -763,86 +760,42 @@ pub fn init(shared: &SharedData, window: &PWindow) {
             fs_module,
             imgui,
             imgui_platform,
-            imgui_renderer,
+            imgui_renderer: Some(imgui_renderer),
             frametime_history: vec![0.0; FRAMETIME_HISTORY_SIZE],
             imgui_draw_data: None
         };
 
-        VK_STATE.with(|vk| {
-            *vk.borrow_mut() = Some(state);
-        });
+        VulkanRenderer::new(state, shared.clone())
     }
 }
 
-pub fn handle_event(window: &PWindow, event: &glfw::WindowEvent) {
-    VK_STATE.with(|vk| {
-        if let Some(state) = vk.borrow_mut().as_mut() {
-            state.imgui_platform.handle_window_event(&mut state.imgui, window, event);
-        }
-    });
+pub fn handle_event(state: &mut VkState, window: &PWindow, event: &glfw::WindowEvent) {
+    state.imgui_platform.handle_window_event(&mut state.imgui, window, event);
 }
 
+pub fn reload_shaders(state: &mut VkState, vert_spirv: &[u32], frag_spirv: &[u32]) {
+    unsafe {
+        state.device.device_wait_idle().unwrap();
 
-pub fn reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
-    VK_STATE.with(|vk| {
-        let mut state_opt = vk.borrow_mut();
-        let state = match state_opt.as_mut() {
-            Some(s) => s,
-            Option::None => return,
-        };
+        state.device.destroy_pipeline(state.pipeline, None);
+        state.device.destroy_pipeline_layout(state.pipeline_layout, None);
+        state.device.destroy_shader_module(state.vs_module, None);
+        state.device.destroy_shader_module(state.fs_module, None);
 
-        unsafe {
-            state.device.device_wait_idle().unwrap();
+        state.vs_module = create_shader_module(&state.device, vert_spirv);
+        state.fs_module = create_shader_module(&state.device, frag_spirv);
 
-            state.device.destroy_pipeline(state.pipeline, None);
-            state.device.destroy_pipeline_layout(state.pipeline_layout, None);
-            state.device.destroy_shader_module(state.vs_module, None);
-            state.device.destroy_shader_module(state.fs_module, None);
+        let (pipeline, pipeline_layout) = create_graphics_pipeline(
+            &state.device,
+            state.swapchain_extent,
+            state.render_pass,
+            state.vs_module,
+            state.fs_module,
+        );
 
-            state.vs_module = create_shader_module(&state.device, vert_spirv);
-            state.fs_module = create_shader_module(&state.device, frag_spirv);
-
-            let (pipeline, pipeline_layout) = create_graphics_pipeline(
-                &state.device,
-                state.swapchain_extent,
-                state.render_pass,
-                state.vs_module,
-                state.fs_module,
-            );
-
-            state.pipeline = pipeline;
-            state.pipeline_layout = pipeline_layout;
-        }
-    });
-}
-
-pub fn with_imgui_ctx<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut imgui::Context) -> R,
-{
-    VK_STATE.with(|vk| {
-        vk.borrow_mut().as_mut().map(|state| f(&mut state.imgui))
-    })
-}
-
-pub fn with_imgui_ui<F>(win: &PWindow,f: F)
-where
-    F: FnOnce(&imgui::Ui),
-{
-    VK_STATE.with(|vk| {
-        let mut state = vk.borrow_mut();
-        let state = state.as_mut().expect("VK_STATE not initialized");
-
-        state.imgui_platform
-            .prepare_frame(&mut state.imgui, win);
-
-        let ui = state.imgui.frame();
-
-        f(&ui);
-
-        let draw_data = state.imgui.render();
-        state.imgui_draw_data = Some(draw_data as *const _);
-    });
+        state.pipeline = pipeline;
+        state.pipeline_layout = pipeline_layout;
+    }
 }
 
 unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &PWindow) {
@@ -885,14 +838,7 @@ unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &PWindow) {
     }
 }
 
-pub fn render(window: &PWindow) {
-    VK_STATE.with(|vk| {
-        let mut state_opt = vk.borrow_mut();
-        let state = match state_opt.as_mut() {
-            Some(s) => s,
-            Option::None => return,
-        };
-
+pub fn render(state: &mut VkState, window: &PWindow) {
         let (window_width,window_height) = window.get_size();
         if window_width == 0 || window_height == 0 {
             return;
@@ -977,7 +923,7 @@ pub fn render(window: &PWindow) {
             state.device.cmd_draw(command_buffer, 3, 1, 0, 0);
 
             if let Some(draw_data) = state.imgui_draw_data.take() {
-                state.imgui_renderer
+                state.imgui_renderer.as_mut().expect("Failed to get ImGui renderer!")
                     .cmd_draw(command_buffer, &*draw_data)
                     .expect("ImGui draw failed");
             }
@@ -1028,65 +974,53 @@ pub fn render(window: &PWindow) {
 
             state.current_frame = (state.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
-    });
 }
 
-pub fn handle_resize() {
-    VK_STATE.with(|vk| {
-        if let Some(state) = vk.borrow_mut().as_mut() {
-            state.recreate_swapchain = true;
-        }
-    });
+pub fn handle_resize(state: &mut VkState) {
+    state.recreate_swapchain = true;
 }
 
-pub fn shutdown() {
-    VK_STATE.with(|vk| {
-        let mut state_opt = vk.borrow_mut();
-        if let Some(state) = state_opt.take() {
-            unsafe {
-                state.device.device_wait_idle().unwrap();
+pub fn shutdown(state: &mut VkState) {
+    unsafe {
+        state.device.device_wait_idle().unwrap();
 
-                drop(state.imgui_renderer);
-
-                for semaphore in state.image_available_semaphores {
-                    state.device.destroy_semaphore(semaphore, None);
-                }
-                for semaphore in state.render_finished_semaphores {
-                    state.device.destroy_semaphore(semaphore, None);
-                }
-                for fence in state.in_flight_fences {
-                    state.device.destroy_fence(fence, None);
-                }
-
-                state.device.destroy_buffer(state.vertex_buffer, None);
-                state.device.free_memory(state.vertex_buffer_memory, None);
-
-                state.device.destroy_command_pool(state.command_pool, None);
-
-                for framebuffer in state.framebuffers {
-                    state.device.destroy_framebuffer(framebuffer, None);
-                }
-
-                state.device.destroy_pipeline(state.pipeline, None);
-                state.device.destroy_pipeline_layout(state.pipeline_layout, None);
-
-                state.device.destroy_render_pass(state.render_pass, None);
-
-                state.device.destroy_shader_module(state.vs_module, None);
-                state.device.destroy_shader_module(state.fs_module, None);
-
-                for image_view in state.swapchain_image_views {
-                    state.device.destroy_image_view(image_view, None);
-                }
-
-                state.swapchain_loader.destroy_swapchain(state.swapchain, None);
-
-                state.surface_loader.destroy_surface(state.surface, None);
-
-                state.device.destroy_device(None);
-
-                state.instance.destroy_instance(None);
-            }
+        for &semaphore in state.image_available_semaphores.iter() {
+            state.device.destroy_semaphore(semaphore, None);
         }
-    });
+        for &semaphore in state.render_finished_semaphores.iter() {
+            state.device.destroy_semaphore(semaphore, None);
+        }
+        for &fence in state.in_flight_fences.iter() {
+            state.device.destroy_fence(fence, None);
+        }
+
+        state.device.destroy_buffer(state.vertex_buffer, None);
+        state.device.free_memory(state.vertex_buffer_memory, None);
+
+        state.device.destroy_command_pool(state.command_pool, None);
+
+        for &framebuffer in state.framebuffers.iter() {
+            state.device.destroy_framebuffer(framebuffer, None);
+        }
+
+        state.device.destroy_pipeline(state.pipeline, None);
+        state.device.destroy_pipeline_layout(state.pipeline_layout, None);
+
+        state.device.destroy_render_pass(state.render_pass, None);
+
+        state.device.destroy_shader_module(state.vs_module, None);
+        state.device.destroy_shader_module(state.fs_module, None);
+
+        for &image_view in state.swapchain_image_views.iter() {
+            state.device.destroy_image_view(image_view, None);
+        }
+
+        state.swapchain_loader.destroy_swapchain(state.swapchain, None);
+
+        state.surface_loader.destroy_surface(state.surface, None);
+
+        state.device.destroy_device(None);
+
+        state.instance.destroy_instance(None);
+    }
 }
