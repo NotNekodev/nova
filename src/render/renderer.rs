@@ -1,5 +1,5 @@
 use glfw::PWindow;
-use crate::render::vk::{handle_event, reload_shaders, render, shutdown, VkState};
+use crate::render::vk::{handle_event, reload_shaders, render, shutdown, DrawCall, VkState, VkVertex};
 use crate::shared::SharedData;
 
 pub struct VulkanRenderer {
@@ -50,11 +50,47 @@ impl VulkanRenderer {
         handle_event(&mut self.state, window, event);
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
+    pub fn resize(&mut self) {
         self.state.recreate_swapchain = true;
     }
 
     pub fn destroy(&mut self) {
         shutdown(&mut self.state);
+    }
+
+    // draw methods
+
+    pub fn draw_triangle(&mut self, v1: [f32; 2], v2: [f32; 2], v3: [f32; 2], color: [f32; 3]) {
+        let vertices = vec![
+            VkVertex { position: v1, color },
+            VkVertex { position: v2, color },
+            VkVertex { position: v3, color },
+        ];
+
+        let vertex_offset = self.state.pending_draw_calls
+            .iter()
+            .map(|dc| dc.vertices.len() as u32)
+            .sum();
+
+        self.state.pending_draw_calls.push(DrawCall {
+            vertices,
+            vertex_offset,
+        });
+    }
+
+    pub fn draw_vertices(&mut self, vertices: Vec<VkVertex>) {
+        let vertex_offset = self.state.pending_draw_calls
+            .iter()
+            .map(|dc| dc.vertices.len() as u32)
+            .sum();
+
+        self.state.pending_draw_calls.push(DrawCall {
+            vertices,
+            vertex_offset,
+        });
+    }
+
+    pub fn clear_draws(&mut self) {
+        self.state.pending_draw_calls.clear();
     }
 }

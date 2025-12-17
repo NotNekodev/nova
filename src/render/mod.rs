@@ -5,6 +5,18 @@ mod renderer;
 
 use crate::{*,shared::*};
 use crate::render::renderer::VulkanRenderer;
+use crate::render::vk::VkVertex;
+
+fn rotate_point_2d(point: [f32; 2], angle: f32) -> [f32; 2] {
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    [
+        point[0] * cos_a - point[1] * sin_a,
+        point[0] * sin_a + point[1] * cos_a,
+    ]
+}
+
 
 pub fn main(shared: SharedData) {
     let mut glfw = glfw::init(glfw::fail_on_errors).unwrap_or_else(|e| {
@@ -31,6 +43,7 @@ pub fn main(shared: SharedData) {
     let mut frame_count = 0;
     let mut fps_timer = Instant::now();
 
+    let mut angle = 0.0f32;
     while !window.should_close() {
         glfw.poll_events();
 
@@ -58,7 +71,7 @@ pub fn main(shared: SharedData) {
                         renderer.reload_shaders(&vs_data, &fs_data);
                     }
                 },
-                glfw::WindowEvent::Size(x,y) => renderer.resize(x as u32, y as u32),
+                glfw::WindowEvent::Size(_,_) => renderer.resize(),
                 _ => ()
             }
         }
@@ -83,6 +96,45 @@ pub fn main(shared: SharedData) {
                 fps_timer = Instant::now();
             }
         }
+
+
+        renderer.clear_draws();
+
+        let v1 = [0.0, -0.2];
+        let v2 = [0.2, 0.2];
+        let v3 = [-0.2, 0.2];
+
+        renderer.draw_triangle(
+            rotate_point_2d(v1, angle),
+            rotate_point_2d(v2, angle),
+            rotate_point_2d(v3, angle),
+            [1.0, 0.0, 1.0],
+        );
+
+        renderer.draw_triangle(
+            [0.5, -0.5],
+            [0.7, -0.3],
+            [0.3, -0.3],
+            [0.0, 1.0, 1.0],
+        );
+
+        let custom_vertices = vec![
+            VkVertex {
+                position: [-0.7, 0.5],
+                color: [1.0, 1.0, 0.0],
+            },
+            VkVertex {
+                position: [-0.5, 0.7],
+                color: [1.0, 0.5, 0.0],
+            },
+            VkVertex {
+                position: [-0.9, 0.7],
+                color: [1.0, 0.0, 0.5],
+            },
+        ];
+        renderer.draw_vertices(custom_vertices);
+
+        angle += 0.01;
 
         renderer.with_imgui_ctx(|ctx| {
             ctx.io_mut().delta_time = delta.as_secs_f32();
