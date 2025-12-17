@@ -1,6 +1,7 @@
 pub mod asset;
 pub mod logger;
 pub mod macros;
+pub mod entity;
 
 use logger::*;
 

@@ -4,9 +4,9 @@ mod logic;
 mod render;
 mod shared;
 
-use std::{sync::*, thread, time::*};
+use std::{collections::HashSet, sync::*, thread, time::*};
 
-use crate::shared::{*, asset::*, logger::*};
+use crate::shared::{asset::*, entity::{Entity, create_entity}, logger::*, *};
 
 fn mt_main(logger: Logger) {
     let (asset_tx,asset_rx) = mpsc::channel::<AssetRequest>();
@@ -76,6 +76,11 @@ fn main() {
     let logger = logger::Logger::new(true, "logs.txt");
 
     init_global_data(&logger);
+
+    let mut rng = rand::rng();
+    let mut ents = HashSet::<Entity>::new();
+
+    info_early!(logger, "Test entity ID: {:?}", create_entity(&mut ents, &mut rng));
 
     info_early!(logger, "Early initialization done!");
 
