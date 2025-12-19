@@ -65,8 +65,10 @@ fn mt_main(logger: Logger) {
 }
 
 fn init_global_data(logger: &Logger) {
+    let project_dir = std::env::args().nth(1).unwrap_or(".".to_string());
+
     //NOTE: there is no fuckin way this can fail
-    GLOBAL_DATA.set(GlobalData { project_dir: ".".to_string() }).expect("Couldn't set global data");
+    GLOBAL_DATA.set(GlobalData { project_dir }).expect("Couldn't set global data");
 
     info_early!(logger, "Project dir: {}", GLOBAL_DATA.get().unwrap().project_dir);
 }
