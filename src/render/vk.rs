@@ -10,12 +10,18 @@ use ash::*;
 use raw_window_handle::*;
 use imgui::*;
 use imgui_rs_vulkan_renderer::*;
+use crate::render::renderer::VulkanRenderer;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VkVertex {
-    position: [f32; 2],
-    color: [f32; 3],
+    pub(crate) position: [f32; 2],
+    pub(crate) color: [f32; 3],
+}
+#[derive(Clone)]
+pub struct DrawCall {
+    pub vertices: Vec<VkVertex>,
+    pub vertex_offset: u32,
 }
 
 #[allow(dead_code)]
@@ -40,8 +46,6 @@ pub struct VkState {
     pub framebuffers: Vec<vk::Framebuffer>,
     pub command_pool: vk::CommandPool,
     pub command_buffers: Vec<vk::CommandBuffer>,
-    pub vertex_buffer: vk::Buffer,
-    pub vertex_buffer_memory: vk::DeviceMemory,
     pub image_available_semaphores: Vec<vk::Semaphore>,
     pub render_finished_semaphores: Vec<vk::Semaphore>,
     pub in_flight_fences: Vec<vk::Fence>,
@@ -50,21 +54,56 @@ pub struct VkState {
     pub vs_module: vk::ShaderModule,
     pub fs_module: vk::ShaderModule,
 
-
     // ImGui specific
     pub imgui: imgui::Context,
     pub imgui_platform: ImguiGLFWSupport,
-    pub imgui_renderer: Renderer,
+    pub imgui_renderer: Option<Renderer>,
     pub frametime_history: Vec<f32>,
-    pub imgui_draw_data: Option<*const imgui::DrawData>,
+    pub imgui_draw_data: Option<*const DrawData>,
+
+    pub dynamic_vertex_buffer: vk::Buffer,
+    pub dynamic_vertex_buffer_memory: vk::DeviceMemory,
+    pub dynamic_vertex_buffer_size: vk::DeviceSize,
+    pub pending_draw_calls: Vec<DrawCall>,
+}
+
+unsafe fn create_dynamic_vertex_buffer(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    size: vk::DeviceSize,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let buffer_info = vk::BufferCreateInfo {
+        size,
+        usage: vk::BufferUsageFlags::VERTEX_BUFFER,
+        sharing_mode: vk::SharingMode::EXCLUSIVE,
+        ..Default::default()
+    };
+
+    unsafe {
+        let buffer = device.create_buffer(&buffer_info, None).unwrap();
+        let mem_requirements = device.get_buffer_memory_requirements(buffer);
+
+        let alloc_info = vk::MemoryAllocateInfo {
+            allocation_size: mem_requirements.size,
+            memory_type_index: find_memory_type(
+                instance,
+                physical_device,
+                mem_requirements.memory_type_bits,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            ),
+            ..Default::default()
+        };
+
+        let buffer_memory = device.allocate_memory(&alloc_info, None).unwrap();
+        device.bind_buffer_memory(buffer, buffer_memory, 0).unwrap();
+
+        (buffer, buffer_memory)
+    }
 }
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 const FRAMETIME_HISTORY_SIZE: usize = 120;
-
-thread_local! {
-    pub static VK_STATE: std::cell::RefCell<Option<VkState>> = std::cell::RefCell::new(None);
-}
 
 unsafe fn create_instance(entry: &Entry, window: &PWindow) -> Instance {
     //NOTE: we know that we can safely unwrap here as we won't panic unless something really bad happened
@@ -136,7 +175,7 @@ unsafe fn create_logical_device(
         ..Default::default()
     };
 
-    let device_extension_names = [ash::khr::swapchain::NAME.as_ptr()];
+    let device_extension_names = [khr::swapchain::NAME.as_ptr()];
 
     let device_create_info = vk::DeviceCreateInfo {
         queue_create_info_count: 1,
@@ -317,7 +356,7 @@ unsafe fn create_render_pass(device: &Device, format: vk::Format) -> vk::RenderP
 
 unsafe fn create_shader_module(device: &Device, code: &[u32]) -> vk::ShaderModule {
     let create_info = vk::ShaderModuleCreateInfo {
-        code_size: code.len() * std::mem::size_of::<u32>(),
+        code_size: code.len() * size_of::<u32>(),
         p_code: code.as_ptr(),
         ..Default::default()
     };
@@ -354,7 +393,7 @@ unsafe fn create_graphics_pipeline(
 
     let binding_description = vk::VertexInputBindingDescription {
         binding: 0,
-        stride: std::mem::size_of::<VkVertex>() as u32,
+        stride: size_of::<VkVertex>() as u32,
         input_rate: vk::VertexInputRate::VERTEX,
     };
 
@@ -518,63 +557,6 @@ unsafe fn find_memory_type(
     }
 }
 
-unsafe fn create_vertex_buffer(
-    instance: &Instance,
-    device: &Device,
-    physical_device: vk::PhysicalDevice,
-) -> (vk::Buffer, vk::DeviceMemory) {
-    let vertices = [
-        VkVertex {
-            position: [0.0, -0.5],
-            color: [1.0, 0.0, 0.0],
-        },
-        VkVertex {
-            position: [0.5, 0.5],
-            color: [0.0, 1.0, 0.0],
-        },
-        VkVertex {
-            position: [-0.5, 0.5],
-            color: [0.0, 0.0, 1.0],
-        },
-    ];
-
-    let buffer_size = std::mem::size_of_val(&vertices) as vk::DeviceSize;
-
-    let buffer_info = vk::BufferCreateInfo {
-        size: buffer_size,
-        usage: vk::BufferUsageFlags::VERTEX_BUFFER,
-        sharing_mode: vk::SharingMode::EXCLUSIVE,
-        ..Default::default()
-    };
-
-    unsafe {
-        let buffer = device.create_buffer(&buffer_info, None).unwrap();
-        let mem_requirements = device.get_buffer_memory_requirements(buffer);
-
-        let alloc_info = vk::MemoryAllocateInfo {
-            allocation_size: mem_requirements.size,
-            memory_type_index: find_memory_type(
-                instance,
-                physical_device,
-                mem_requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            ),
-            ..Default::default()
-        };
-
-        let buffer_memory = device.allocate_memory(&alloc_info, None).unwrap();
-        device.bind_buffer_memory(buffer, buffer_memory, 0).unwrap();
-
-        let data_ptr = device
-            .map_memory(buffer_memory, 0, buffer_size, vk::MemoryMapFlags::empty())
-            .unwrap();
-        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data_ptr as *mut VkVertex, vertices.len());
-        device.unmap_memory(buffer_memory);
-
-        (buffer, buffer_memory)
-    }
-}
-
 unsafe fn create_command_pool(device: &Device, queue_family_index: u32) -> vk::CommandPool {
     let pool_info = vk::CommandPoolCreateInfo {
         flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
@@ -642,7 +624,7 @@ fn init_imgui(window: &PWindow) -> (imgui::Context, ImguiGLFWSupport) {
     (imgui, platform)
 }
 
-pub fn init(shared: &SharedData, window: &PWindow) {
+pub fn init(shared: &SharedData, window: &PWindow) -> VulkanRenderer {
     unsafe {
         let entry = Entry::load().expect("Failed to load Vulkan");
         let instance = create_instance(&entry, window);
@@ -662,7 +644,7 @@ pub fn init(shared: &SharedData, window: &PWindow) {
                 let patch = vk::api_version_patch(version);
                 info!(shared, "Vulkan version: {}.{}.{}", major, minor, patch);
             }
-            Ok(Option::None) => {
+            Ok(None) => {
                 info!(shared, "Vulkan version: 1.0.0");
             }
             Err(e) => {
@@ -712,8 +694,6 @@ pub fn init(shared: &SharedData, window: &PWindow) {
 
         let framebuffers = create_framebuffers(&device, &swapchain_image_views, render_pass, swapchain_extent);
         let command_pool = create_command_pool(&device, queue_family_index);
-        
-        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&instance, &device, physical_device);
 
         let command_buffers = create_command_buffers(&device, command_pool, MAX_FRAMES_IN_FLIGHT);
         let (image_available_semaphores, render_finished_semaphores, in_flight_fences) = create_sync_objects(&device);
@@ -730,6 +710,10 @@ pub fn init(shared: &SharedData, window: &PWindow) {
             &mut imgui,
             Default::default()
         ).expect("Failed to initialize imgui renderer");
+
+        let dynamic_buffer_size = 1024 * 1024; // 1MB
+        let (dynamic_vertex_buffer, dynamic_vertex_buffer_memory) =
+            create_dynamic_vertex_buffer(&instance, &device, physical_device, dynamic_buffer_size);
 
         let state = VkState {
             entry,
@@ -752,8 +736,6 @@ pub fn init(shared: &SharedData, window: &PWindow) {
             framebuffers,
             command_pool,
             command_buffers,
-            vertex_buffer,
-            vertex_buffer_memory,
             image_available_semaphores,
             render_finished_semaphores,
             in_flight_fences,
@@ -763,86 +745,47 @@ pub fn init(shared: &SharedData, window: &PWindow) {
             fs_module,
             imgui,
             imgui_platform,
-            imgui_renderer,
+            imgui_renderer: Some(imgui_renderer),
             frametime_history: vec![0.0; FRAMETIME_HISTORY_SIZE],
-            imgui_draw_data: None
+            imgui_draw_data: None,
+
+            dynamic_vertex_buffer,
+            dynamic_vertex_buffer_memory,
+            dynamic_vertex_buffer_size: dynamic_buffer_size,
+            pending_draw_calls: Vec::new(),
         };
 
-        VK_STATE.with(|vk| {
-            *vk.borrow_mut() = Some(state);
-        });
+        VulkanRenderer::new(state, shared.clone())
     }
 }
 
-pub fn handle_event(window: &PWindow, event: &glfw::WindowEvent) {
-    VK_STATE.with(|vk| {
-        if let Some(state) = vk.borrow_mut().as_mut() {
-            state.imgui_platform.handle_window_event(&mut state.imgui, window, event);
-        }
-    });
+pub fn handle_event(state: &mut VkState, window: &PWindow, event: &WindowEvent) {
+    state.imgui_platform.handle_window_event(&mut state.imgui, window, event);
 }
 
+pub fn reload_shaders(state: &mut VkState, vert_spirv: &[u32], frag_spirv: &[u32]) {
+    unsafe {
+        state.device.device_wait_idle().unwrap();
 
-pub fn reload_shaders(vert_spirv: &[u32], frag_spirv: &[u32]) {
-    VK_STATE.with(|vk| {
-        let mut state_opt = vk.borrow_mut();
-        let state = match state_opt.as_mut() {
-            Some(s) => s,
-            Option::None => return,
-        };
+        state.device.destroy_pipeline(state.pipeline, None);
+        state.device.destroy_pipeline_layout(state.pipeline_layout, None);
+        state.device.destroy_shader_module(state.vs_module, None);
+        state.device.destroy_shader_module(state.fs_module, None);
 
-        unsafe {
-            state.device.device_wait_idle().unwrap();
+        state.vs_module = create_shader_module(&state.device, vert_spirv);
+        state.fs_module = create_shader_module(&state.device, frag_spirv);
 
-            state.device.destroy_pipeline(state.pipeline, None);
-            state.device.destroy_pipeline_layout(state.pipeline_layout, None);
-            state.device.destroy_shader_module(state.vs_module, None);
-            state.device.destroy_shader_module(state.fs_module, None);
+        let (pipeline, pipeline_layout) = create_graphics_pipeline(
+            &state.device,
+            state.swapchain_extent,
+            state.render_pass,
+            state.vs_module,
+            state.fs_module,
+        );
 
-            state.vs_module = create_shader_module(&state.device, vert_spirv);
-            state.fs_module = create_shader_module(&state.device, frag_spirv);
-
-            let (pipeline, pipeline_layout) = create_graphics_pipeline(
-                &state.device,
-                state.swapchain_extent,
-                state.render_pass,
-                state.vs_module,
-                state.fs_module,
-            );
-
-            state.pipeline = pipeline;
-            state.pipeline_layout = pipeline_layout;
-        }
-    });
-}
-
-pub fn with_imgui_ctx<F, R>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut imgui::Context) -> R,
-{
-    VK_STATE.with(|vk| {
-        vk.borrow_mut().as_mut().map(|state| f(&mut state.imgui))
-    })
-}
-
-pub fn with_imgui_ui<F>(win: &PWindow,f: F)
-where
-    F: FnOnce(&imgui::Ui),
-{
-    VK_STATE.with(|vk| {
-        let mut state = vk.borrow_mut();
-        let state = state.as_mut().expect("VK_STATE not initialized");
-
-        state.imgui_platform
-            .prepare_frame(&mut state.imgui, win);
-
-        let ui = state.imgui.frame();
-
-        f(&ui);
-
-        let draw_data = state.imgui.render();
-        state.imgui_draw_data = Some(draw_data as *const _);
-    });
+        state.pipeline = pipeline;
+        state.pipeline_layout = pipeline_layout;
+    }
 }
 
 unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &PWindow) {
@@ -884,209 +827,237 @@ unsafe fn recreate_swapchain_impl(state: &mut VkState, window: &PWindow) {
         state.pipeline_layout = pipeline_layout;
     }
 }
+pub fn render(state: &mut VkState, window: &PWindow) {
+    let (window_width, window_height) = window.get_size();
+    if window_width == 0 || window_height == 0 {
+        return;
+    }
 
-pub fn render(window: &PWindow) {
-    VK_STATE.with(|vk| {
-        let mut state_opt = vk.borrow_mut();
-        let state = match state_opt.as_mut() {
-            Some(s) => s,
-            Option::None => return,
-        };
-
-        let (window_width,window_height) = window.get_size();
-        if window_width == 0 || window_height == 0 {
+    unsafe {
+        if state.recreate_swapchain {
+            recreate_swapchain_impl(state, window);
+            state.recreate_swapchain = false;
             return;
         }
 
-        unsafe {
-            if state.recreate_swapchain {
-                recreate_swapchain_impl(state, window);
-                state.recreate_swapchain = false;
+        if !state.pending_draw_calls.is_empty() {
+            let mut total_vertices = Vec::new();
+            for draw_call in &state.pending_draw_calls {
+                total_vertices.extend_from_slice(&draw_call.vertices);
+            }
+
+            let buffer_size = (total_vertices.len() * size_of::<VkVertex>()) as vk::DeviceSize;
+
+            if buffer_size > state.dynamic_vertex_buffer_size {
+                state.device.device_wait_idle().unwrap();
+                state.device.destroy_buffer(state.dynamic_vertex_buffer, None);
+                state.device.free_memory(state.dynamic_vertex_buffer_memory, None);
+
+                let new_size = buffer_size * 2; // Double the size
+                let (new_buffer, new_memory) = create_dynamic_vertex_buffer(
+                    &state.instance,
+                    &state.device,
+                    state.physical_device,
+                    new_size,
+                );
+
+                state.dynamic_vertex_buffer = new_buffer;
+                state.dynamic_vertex_buffer_memory = new_memory;
+                state.dynamic_vertex_buffer_size = new_size;
+            }
+
+            let data_ptr = state.device
+                .map_memory(
+                    state.dynamic_vertex_buffer_memory,
+                    0,
+                    buffer_size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .unwrap();
+            std::ptr::copy_nonoverlapping(
+                total_vertices.as_ptr(),
+                data_ptr as *mut VkVertex,
+                total_vertices.len(),
+            );
+            state.device.unmap_memory(state.dynamic_vertex_buffer_memory);
+        }
+
+        let current_frame = state.current_frame;
+
+        state.device
+            .wait_for_fences(&[state.in_flight_fences[current_frame]], true, u64::MAX)
+            .unwrap();
+
+        let (image_index, suboptimal) = match state.swapchain_loader.acquire_next_image(
+            state.swapchain,
+            u64::MAX,
+            state.image_available_semaphores[current_frame],
+            vk::Fence::null(),
+        ) {
+            Ok(result) => result,
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                state.recreate_swapchain = true;
                 return;
             }
+            Err(e) => panic!("Failed to acquire swapchain image: {:?}", e),
+        };
 
-            let current_frame = state.current_frame;
+        if suboptimal {
+            state.recreate_swapchain = true;
+        }
 
-            state.device
-                .wait_for_fences(&[state.in_flight_fences[current_frame]], true, u64::MAX)
-                .unwrap();
+        state.device.reset_fences(&[state.in_flight_fences[current_frame]]).unwrap();
 
-            let (image_index, suboptimal) = match state.swapchain_loader.acquire_next_image(
-                state.swapchain,
-                u64::MAX,
-                state.image_available_semaphores[current_frame],
-                vk::Fence::null(),
-            ) {
-                Ok(result) => result,
-                Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                    state.recreate_swapchain = true;
-                    return;
-                }
-                Err(e) => panic!("Failed to acquire swapchain image: {:?}", e),
-            };
+        let command_buffer = state.command_buffers[current_frame];
+        state.device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty()).unwrap();
 
-            if suboptimal {
-                state.recreate_swapchain = true;
-            }
+        let begin_info = vk::CommandBufferBeginInfo::default();
+        state.device.begin_command_buffer(command_buffer, &begin_info).unwrap();
 
-            state.device.reset_fences(&[state.in_flight_fences[current_frame]]).unwrap();
+        let clear_values = [vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 1.0],
+            },
+        }];
 
-            let command_buffer = state.command_buffers[current_frame];
-            state.device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty()).unwrap();
+        let render_pass_begin_info = vk::RenderPassBeginInfo {
+            render_pass: state.render_pass,
+            framebuffer: state.framebuffers[image_index as usize],
+            render_area: vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: state.swapchain_extent,
+            },
+            clear_value_count: clear_values.len() as u32,
+            p_clear_values: clear_values.as_ptr(),
+            ..Default::default()
+        };
 
-            let begin_info = vk::CommandBufferBeginInfo::default();
-            state.device.begin_command_buffer(command_buffer, &begin_info).unwrap();
+        state.device.cmd_begin_render_pass(
+            command_buffer,
+            &render_pass_begin_info,
+            vk::SubpassContents::INLINE,
+        );
 
-            let clear_values = [vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            }];
+        state.device.cmd_bind_pipeline(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            state.pipeline,
+        );
 
-            let render_pass_begin_info = vk::RenderPassBeginInfo {
-                render_pass: state.render_pass,
-                framebuffer: state.framebuffers[image_index as usize],
-                render_area: vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent: state.swapchain_extent,
-                },
-                clear_value_count: clear_values.len() as u32,
-                p_clear_values: clear_values.as_ptr(),
-                ..Default::default()
-            };
-
-            state.device.cmd_begin_render_pass(
-                command_buffer,
-                &render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
-
-            state.device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                state.pipeline,
-            );
-
+        if !state.pending_draw_calls.is_empty() {
             state.device.cmd_bind_vertex_buffers(
                 command_buffer,
                 0,
-                &[state.vertex_buffer],
+                &[state.dynamic_vertex_buffer],
                 &[0],
             );
 
-            state.device.cmd_draw(command_buffer, 3, 1, 0, 0);
-
-            if let Some(draw_data) = state.imgui_draw_data.take() {
-                state.imgui_renderer
-                    .cmd_draw(command_buffer, &*draw_data)
-                    .expect("ImGui draw failed");
+            for draw_call in &state.pending_draw_calls {
+                state.device.cmd_draw(
+                    command_buffer,
+                    draw_call.vertices.len() as u32,
+                    1,
+                    draw_call.vertex_offset,
+                    0,
+                );
             }
-
-            state.device.cmd_end_render_pass(command_buffer);
-
-            state.device.end_command_buffer(command_buffer).unwrap();
-
-            let wait_semaphores = [state.image_available_semaphores[current_frame]];
-            let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-            let signal_semaphores = [state.render_finished_semaphores[current_frame]];
-            let command_buffers = [command_buffer];
-
-            let submit_info = vk::SubmitInfo {
-                wait_semaphore_count: 1,
-                p_wait_semaphores: wait_semaphores.as_ptr(),
-                p_wait_dst_stage_mask: wait_stages.as_ptr(),
-                command_buffer_count: 1,
-                p_command_buffers: command_buffers.as_ptr(),
-                signal_semaphore_count: 1,
-                p_signal_semaphores: signal_semaphores.as_ptr(),
-                ..Default::default()
-            };
-
-            state.device
-                .queue_submit(state.queue, &[submit_info], state.in_flight_fences[current_frame])
-                .unwrap();
-
-            let swapchains = [state.swapchain];
-            let image_indices = [image_index];
-
-            let present_info = vk::PresentInfoKHR {
-                wait_semaphore_count: 1,
-                p_wait_semaphores: signal_semaphores.as_ptr(),
-                swapchain_count: 1,
-                p_swapchains: swapchains.as_ptr(),
-                p_image_indices: image_indices.as_ptr(),
-                ..Default::default()
-            };
-
-            match state.swapchain_loader.queue_present(state.queue, &present_info) {
-                Ok(_) => {}
-                Err(vk::Result::ERROR_OUT_OF_DATE_KHR) | Err(vk::Result::SUBOPTIMAL_KHR) => {
-                    state.recreate_swapchain = true;
-                }
-                Err(e) => panic!("Failed to present: {:?}", e),
-            }
-
-            state.current_frame = (state.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
-    });
+
+        if let Some(draw_data) = state.imgui_draw_data.take() {
+            state.imgui_renderer.as_mut().expect("Failed to get ImGui renderer!")
+                .cmd_draw(command_buffer, &*draw_data)
+                .expect("ImGui draw failed");
+        }
+
+        state.device.cmd_end_render_pass(command_buffer);
+        state.device.end_command_buffer(command_buffer).unwrap();
+
+        let wait_semaphores = [state.image_available_semaphores[current_frame]];
+        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let signal_semaphores = [state.render_finished_semaphores[current_frame]];
+        let command_buffers = [command_buffer];
+
+        let submit_info = vk::SubmitInfo {
+            wait_semaphore_count: 1,
+            p_wait_semaphores: wait_semaphores.as_ptr(),
+            p_wait_dst_stage_mask: wait_stages.as_ptr(),
+            command_buffer_count: 1,
+            p_command_buffers: command_buffers.as_ptr(),
+            signal_semaphore_count: 1,
+            p_signal_semaphores: signal_semaphores.as_ptr(),
+            ..Default::default()
+        };
+
+        state.device
+            .queue_submit(state.queue, &[submit_info], state.in_flight_fences[current_frame])
+            .unwrap();
+
+        let swapchains = [state.swapchain];
+        let image_indices = [image_index];
+
+        let present_info = vk::PresentInfoKHR {
+            wait_semaphore_count: 1,
+            p_wait_semaphores: signal_semaphores.as_ptr(),
+            swapchain_count: 1,
+            p_swapchains: swapchains.as_ptr(),
+            p_image_indices: image_indices.as_ptr(),
+            ..Default::default()
+        };
+
+        match state.swapchain_loader.queue_present(state.queue, &present_info) {
+            Ok(_) => {}
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) | Err(vk::Result::SUBOPTIMAL_KHR) => {
+                state.recreate_swapchain = true;
+            }
+            Err(e) => panic!("Failed to present: {:?}", e),
+        }
+
+        state.pending_draw_calls.clear();
+        state.current_frame = (state.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
 }
 
-pub fn handle_resize() {
-    VK_STATE.with(|vk| {
-        if let Some(state) = vk.borrow_mut().as_mut() {
-            state.recreate_swapchain = true;
+pub fn shutdown(state: &mut VkState) {
+    unsafe {
+        state.device.device_wait_idle().unwrap();
+
+        state.device.destroy_buffer(state.dynamic_vertex_buffer, None);
+        state.device.free_memory(state.dynamic_vertex_buffer_memory, None);
+
+        for &semaphore in state.image_available_semaphores.iter() {
+            state.device.destroy_semaphore(semaphore, None);
         }
-    });
-}
-
-pub fn shutdown() {
-    VK_STATE.with(|vk| {
-        let mut state_opt = vk.borrow_mut();
-        if let Some(state) = state_opt.take() {
-            unsafe {
-                state.device.device_wait_idle().unwrap();
-
-                drop(state.imgui_renderer);
-
-                for semaphore in state.image_available_semaphores {
-                    state.device.destroy_semaphore(semaphore, None);
-                }
-                for semaphore in state.render_finished_semaphores {
-                    state.device.destroy_semaphore(semaphore, None);
-                }
-                for fence in state.in_flight_fences {
-                    state.device.destroy_fence(fence, None);
-                }
-
-                state.device.destroy_buffer(state.vertex_buffer, None);
-                state.device.free_memory(state.vertex_buffer_memory, None);
-
-                state.device.destroy_command_pool(state.command_pool, None);
-
-                for framebuffer in state.framebuffers {
-                    state.device.destroy_framebuffer(framebuffer, None);
-                }
-
-                state.device.destroy_pipeline(state.pipeline, None);
-                state.device.destroy_pipeline_layout(state.pipeline_layout, None);
-
-                state.device.destroy_render_pass(state.render_pass, None);
-
-                state.device.destroy_shader_module(state.vs_module, None);
-                state.device.destroy_shader_module(state.fs_module, None);
-
-                for image_view in state.swapchain_image_views {
-                    state.device.destroy_image_view(image_view, None);
-                }
-
-                state.swapchain_loader.destroy_swapchain(state.swapchain, None);
-
-                state.surface_loader.destroy_surface(state.surface, None);
-
-                state.device.destroy_device(None);
-
-                state.instance.destroy_instance(None);
-            }
+        for &semaphore in state.render_finished_semaphores.iter() {
+            state.device.destroy_semaphore(semaphore, None);
         }
-    });
+        for &fence in state.in_flight_fences.iter() {
+            state.device.destroy_fence(fence, None);
+        }
+
+        state.device.destroy_command_pool(state.command_pool, None);
+
+        for &framebuffer in state.framebuffers.iter() {
+            state.device.destroy_framebuffer(framebuffer, None);
+        }
+
+        state.device.destroy_pipeline(state.pipeline, None);
+        state.device.destroy_pipeline_layout(state.pipeline_layout, None);
+
+        state.device.destroy_render_pass(state.render_pass, None);
+
+        state.device.destroy_shader_module(state.vs_module, None);
+        state.device.destroy_shader_module(state.fs_module, None);
+
+        for &image_view in state.swapchain_image_views.iter() {
+            state.device.destroy_image_view(image_view, None);
+        }
+
+        state.swapchain_loader.destroy_swapchain(state.swapchain, None);
+
+        state.surface_loader.destroy_surface(state.surface, None);
+
+        state.device.destroy_device(None);
+
+        state.instance.destroy_instance(None);
+    }
 }

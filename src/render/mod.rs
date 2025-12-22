@@ -1,7 +1,22 @@
 pub mod vk;
-pub mod imgui_glfw_support; // lets pretend this is the crate okay?
+pub mod imgui_glfw_support;
+mod renderer;
+// lets pretend this is the crate okay?
 
 use crate::{*,shared::*};
+use crate::render::renderer::VulkanRenderer;
+use crate::render::vk::VkVertex;
+
+fn rotate_point_2d(point: [f32; 2], angle: f32) -> [f32; 2] {
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    [
+        point[0] * cos_a - point[1] * sin_a,
+        point[0] * sin_a + point[1] * cos_a,
+    ]
+}
+
 
 pub fn main(shared: SharedData) {
     let mut glfw = glfw::init(glfw::fail_on_errors).unwrap_or_else(|e| {
@@ -19,7 +34,7 @@ pub fn main(shared: SharedData) {
     window.set_cursor_mode(glfw::CursorMode::Normal);
     window.set_all_polling(true);
 
-    vk::init(&shared, &window);
+    let mut renderer: VulkanRenderer =  vk::init(&shared, &window);
 
     info!(shared,"Render thread initialized");
     info!(shared,"Nova engine v{VERSION} initialized successfully!");
@@ -28,11 +43,12 @@ pub fn main(shared: SharedData) {
     let mut frame_count = 0;
     let mut fps_timer = Instant::now();
 
+    let mut angle = 0.0f32;
     while !window.should_close() {
         glfw.poll_events();
 
         for (_,e) in glfw::flush_messages(&events) {
-            vk::handle_event(&window, &e);
+            renderer.handle_event(&window, &e);
             match e {
                 glfw::WindowEvent::Close => {
                     window.set_should_close(true);
@@ -52,10 +68,10 @@ pub fn main(shared: SharedData) {
                             _ => err!(shared, "Failed to get the test fragment shader"),
                         }
 
-                        vk::reload_shaders(&vs_data, &fs_data);
+                        renderer.reload_shaders(&vs_data, &fs_data);
                     }
                 },
-                glfw::WindowEvent::Size(_,_) => vk::handle_resize(),
+                glfw::WindowEvent::Size(_,_) => renderer.resize(),
                 _ => ()
             }
         }
@@ -81,19 +97,58 @@ pub fn main(shared: SharedData) {
             }
         }
 
-        vk::with_imgui_ctx(|ctx| {
+
+        renderer.clear_draws();
+
+        let v1 = [0.0, -0.2];
+        let v2 = [0.2, 0.2];
+        let v3 = [-0.2, 0.2];
+
+        renderer.draw_triangle(
+            rotate_point_2d(v1, angle),
+            rotate_point_2d(v2, angle),
+            rotate_point_2d(v3, angle),
+            [1.0, 0.0, 1.0],
+        );
+
+        renderer.draw_triangle(
+            [0.5, -0.5],
+            [0.7, -0.3],
+            [0.3, -0.3],
+            [0.0, 1.0, 1.0],
+        );
+
+        let custom_vertices = vec![
+            VkVertex {
+                position: [-0.7, 0.5],
+                color: [1.0, 1.0, 0.0],
+            },
+            VkVertex {
+                position: [-0.5, 0.7],
+                color: [1.0, 0.5, 0.0],
+            },
+            VkVertex {
+                position: [-0.9, 0.7],
+                color: [1.0, 0.0, 0.5],
+            },
+        ];
+        renderer.draw_vertices(custom_vertices);
+
+        angle += 0.01;
+
+        renderer.with_imgui_ctx(|ctx| {
             ctx.io_mut().delta_time = delta.as_secs_f32();
         });
 
-        vk::with_imgui_ui(&window,|ui| {
+        renderer.with_imgui_ui(&window,|ui| {
             let mut opened = false;
             ui.show_demo_window(&mut opened);
         });
 
-        vk::render(&window);
+        renderer.render(&window);
     }
 
-    vk::shutdown();
+    renderer.destroy();
 
     //I'll still be a little troll
     popup_info!(

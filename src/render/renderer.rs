@@ -1,0 +1,96 @@
+use glfw::PWindow;
+use crate::render::vk::{handle_event, reload_shaders, render, shutdown, DrawCall, VkState, VkVertex};
+use crate::shared::SharedData;
+
+pub struct VulkanRenderer {
+    state: VkState,
+    shared: SharedData,
+}
+
+impl VulkanRenderer {
+    pub fn new(state: VkState, shared: SharedData) -> VulkanRenderer {
+        VulkanRenderer {
+            state,
+            shared
+        }
+    }
+
+    pub fn with_imgui_ctx<F, R>(&mut self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut imgui::Context) -> R,
+    {
+        Some(f(&mut self.state.imgui))
+    }
+
+    pub fn render(&mut self, window: &PWindow) {
+        render(&mut self.state, window);
+    }
+
+    pub fn with_imgui_ui<F>(&mut self, win: &PWindow,f: F)
+    where
+        F: FnOnce(&imgui::Ui),
+    {
+
+        self.state.imgui_platform
+            .prepare_frame(&mut self.state.imgui, win);
+
+        let ui = self.state.imgui.frame();
+
+        f(&ui);
+
+        let draw_data = self.state.imgui.render();
+        self.state.imgui_draw_data = Some(draw_data as *const _);
+    }
+
+    pub fn reload_shaders(&mut self, vert_spirv: &[u32], frag_spirv: &[u32]) {
+        reload_shaders(&mut self.state, vert_spirv, frag_spirv);
+    }
+
+    pub fn handle_event(&mut self, window: &PWindow, event: &glfw::WindowEvent) {
+        handle_event(&mut self.state, window, event);
+    }
+
+    pub fn resize(&mut self) {
+        self.state.recreate_swapchain = true;
+    }
+
+    pub fn destroy(&mut self) {
+        shutdown(&mut self.state);
+    }
+
+    // draw methods
+
+    pub fn draw_triangle(&mut self, v1: [f32; 2], v2: [f32; 2], v3: [f32; 2], color: [f32; 3]) {
+        let vertices = vec![
+            VkVertex { position: v1, color },
+            VkVertex { position: v2, color },
+            VkVertex { position: v3, color },
+        ];
+
+        let vertex_offset = self.state.pending_draw_calls
+            .iter()
+            .map(|dc| dc.vertices.len() as u32)
+            .sum();
+
+        self.state.pending_draw_calls.push(DrawCall {
+            vertices,
+            vertex_offset,
+        });
+    }
+
+    pub fn draw_vertices(&mut self, vertices: Vec<VkVertex>) {
+        let vertex_offset = self.state.pending_draw_calls
+            .iter()
+            .map(|dc| dc.vertices.len() as u32)
+            .sum();
+
+        self.state.pending_draw_calls.push(DrawCall {
+            vertices,
+            vertex_offset,
+        });
+    }
+
+    pub fn clear_draws(&mut self) {
+        self.state.pending_draw_calls.clear();
+    }
+}
